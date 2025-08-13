@@ -1,5 +1,5 @@
 import io
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 import pandas as pd
 
 
@@ -11,6 +11,8 @@ OMOP_DOMAINS = [
     "Device",
     "Drug",
 ]
+
+OMOP_DOMAINS_LITERAL = Literal[*OMOP_DOMAINS]
 
 DOMAIN_COLORS = {
     "Condition": "#E0F0FF",
@@ -33,7 +35,7 @@ def payload_to_df(payload: Dict[str, Any]) -> pd.DataFrame:
             "canonical_label": e.get("label",""),
             "id": e.get("id",""),
             "domain": e.get("domain",""),
-            "confidence": float(e.get("confidence", 0.0)),
+            "confidence": e.get("confidence", None),
         })
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -41,7 +43,7 @@ def payload_to_df(payload: Dict[str, Any]) -> pd.DataFrame:
             "row_id":"int",
             "mention":"string","start":"int","end":"int",
             "canonical_label":"string","id":"string","domain":"string",
-            "confidence":"float"
+            #"confidence":"float"
         })
     return df
 

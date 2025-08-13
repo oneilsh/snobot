@@ -9,6 +9,8 @@ from ui.utils import payload_to_df, csv_text, OMOP_DOMAINS, DOMAIN_COLORS
 from ui.annotated import render_annotated_component_from_df_css
 from ui.examples import example_names, get_example
 
+import dotenv
+dotenv.load_dotenv(override=True)
 
 st.set_page_config(page_title="BioNER + Resolution", layout="wide")
 init_state()
@@ -16,10 +18,10 @@ init_state()
 # ---------- Sidebar ----------
 with st.sidebar:
     st.title("Settings")
-    st.selectbox("Resolver backend", ["Accurate", "Fast"], key="backend", on_change=mark_stale)
+    st.selectbox("Resolver backend", ["Default"], key="backend", on_change=mark_stale)
     st.multiselect(
         "Target Domains", OMOP_DOMAINS,
-        default=OMOP_DOMAINS, key="domains", on_change=mark_stale
+        default=["Condition", "Observation"], key="domains", on_change=mark_stale
     )
 
 # ---------- Main: inputs ----------
@@ -82,7 +84,8 @@ if st.session_state.results:
         print(df)
         display_cols = [
             "mention", "canonical_label", "id", "domain",
-            "confidence", "start", "end", "row_id"
+            "confidence", 
+            "start", "end", "row_id"
         ]
         df = st.session_state.entities_df
         st.dataframe(df[display_cols] if not df.empty else df, use_container_width=True, hide_index=True)
