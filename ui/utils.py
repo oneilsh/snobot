@@ -15,12 +15,12 @@ OMOP_DOMAINS = [
 OMOP_DOMAINS_LITERAL = Literal[*OMOP_DOMAINS]
 
 DOMAIN_COLORS = {
-    "Condition": "#E0F0FF",
-    "Observation": "#EFE0FF",
-    "Procedure": "#E8FFE8",
-    "Measurement": "#FFF6CC",
-    "Device": "#EEEEEE",
-    "Drug": "#F0F0F0",
+    "Condition": "#C4E2FF",
+    "Observation": "#E3CAFF",
+    "Procedure": "#D4FFD4",
+    "Measurement": "#FFF0AD",
+    "Device": "#FFBBBB",
+    "Drug": "#FFD1BA",
 }
 
 
@@ -35,6 +35,7 @@ def payload_to_df(payload: Dict[str, Any]) -> pd.DataFrame:
             "canonical_label": e.get("label",""),
             "id": e.get("id",""),
             "domain": e.get("domain",""),
+            "negated": e.get("negated", False),
             "confidence": e.get("confidence", None),
         })
     df = pd.DataFrame(rows)
@@ -43,6 +44,7 @@ def payload_to_df(payload: Dict[str, Any]) -> pd.DataFrame:
             "row_id":"int",
             "mention":"string","start":"int","end":"int",
             "canonical_label":"string","id":"string","domain":"string",
+            "negated":"bool",
             #"confidence":"float"
         })
     return df

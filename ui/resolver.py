@@ -19,10 +19,11 @@ def resolve_entities_api(text: str, settings: Settings, status_widget) -> Dict[s
             "start": text.find(concept.concept_string),
             "end": text.find(concept.concept_string) + len(concept.concept_string),
             "domain": concept.probable_domain,
-            "id": "SNOMED:" + str(hash(concept.concept_string)),  # Placeholder ID generation
-            "label": concept.concept_string,  # Placeholder label
-            "vocab": "SNOMED",  # Placeholder vocabulary
-            "confidence": None  # Placeholder confidence
+            "id": "SNOMED:" + "TBD",  # Placeholder ID generation
+            "label": "TBD",  # Placeholder label
+            "vocab": "TBD",  # Placeholder vocabulary
+            "confidence": None,  # Placeholder confidence
+            "negated": concept.negated
         })
 
     return {

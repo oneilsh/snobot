@@ -39,6 +39,7 @@ with st.expander("Input", expanded=True):
             mark_stale()
 
     def _on_example_change():
+        st.session_state.results = None
         name = st.session_state.get("example_choice")
         if name and name != "— Choose an example —":
             st.session_state.input_text = get_example(name)
@@ -81,11 +82,10 @@ if st.session_state.results:
             st.session_state.entities_df
         )
 
-        print(df)
         display_cols = [
             "mention", "canonical_label", "id", "domain",
-            "confidence", 
-            "start", "end", "row_id"
+            "negated", 
+            "start", "end"
         ]
         df = st.session_state.entities_df
         st.dataframe(df[display_cols] if not df.empty else df, use_container_width=True, hide_index=True)
