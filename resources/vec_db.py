@@ -1,8 +1,17 @@
 from sentence_transformers import SentenceTransformer
+from pydantic.dataclasses import dataclass
 import os
 import pandas as pd
 import faiss
 import numpy as np
+
+@dataclass
+class VecDBHit:
+    search_string: str
+    concept_id: str
+    concept_name: str
+    distance: float
+
 
 class VecDB:
     def __init__(self):
@@ -106,7 +115,7 @@ class VecDB:
         return index
     
 
-    def query(self, text, top_k=5):
+    def query(self, text, top_k=5) -> list[VecDBHit]:
         """Query the FAISS index for similar OMOP concepts."""
         if self.faiss_index is None or self.concept_df is None:
             raise ValueError("FAISS index not initialized.")
@@ -122,6 +131,6 @@ class VecDB:
         for dist, idx in zip(distances[0], indices[0]):
             concept_id = self.concept_df.iloc[idx]["concept_id"]
             concept_name = self.concept_df.iloc[idx]["concept_name"]
-            results.append((concept_id, concept_name, float(dist)))
+            results.append(VecDBHit(search_string=text, concept_id=concept_id, concept_name=concept_name, distance=float(dist)))
         
         return results

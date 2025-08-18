@@ -1,64 +1,19 @@
 # Stub resolver — replace with your backend call
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Dict, Any, Tuple
 from .models import Settings
 import time
-from agents.extract_agent import extract_concepts, SearchConcept
+from agents.extract_agent import extract_and_code_mentions, FullCodedConcept
+import pandas as pd
 
-def resolve_entities_api(text: str, settings: Settings, status_widget) -> Dict[str, Any]:
+def resolve_entities_api(text: str, settings: Settings, status_widget) -> Tuple[Dict[str, Any], pd.DataFrame]:
     meta = {
         "backend": settings.backend,
         "domains": settings.domains,
         "chars": len(text)
     }
 
-    extracted_concepts = extract_concepts(text)
-    entities = []
-    for concept in extracted_concepts.concepts:
-        entities.append({
-            "mention": concept.concept_string,
-            "start": text.find(concept.concept_string),
-            "end": text.find(concept.concept_string) + len(concept.concept_string),
-            "domain": concept.probable_domain,
-            "id": "SNOMED:" + "TBD",  # Placeholder ID generation
-            "label": "TBD",  # Placeholder label
-            "vocab": "TBD",  # Placeholder vocabulary
-            "confidence": None,  # Placeholder confidence
-            "negated": concept.negated
-        })
+    coded_concepts: list[FullCodedConcept] = extract_and_code_mentions(text, status_widget)
+    df = pd.DataFrame(coded_concepts)
 
-    return {
-        "meta": meta,
-        "entities": entities
-    }
-
-
-
-    # return {
-    #     "meta": {
-    #         "backend": settings.backend,
-    #         "domains": settings.domains,
-    #         "chars": len(text)
-    #     },
-    #     "entities": [
-    #         {
-    #             "mention": "chronic kidney disease",
-    #             "start": 7, "end": 29, "domain": "Condition",
-    #             "id":"MONDO:0005161","label":"Chronic kidney disease","vocab":"MONDO","confidence":0.91
-    #         },
-    #         {
-    #             "mention": "diabetes mellitus type 2",
-    #             "start": 49, "end": 74, "domain": "Condition",
-    #             "id":"MONDO:0005148","label":"Type 2 diabetes mellitus","vocab":"MONDO","confidence":0.89
-    #         },
-    #         {
-    #             "mention": "metformin",
-    #             "start": 105, "end": 114, "domain": "Drug",
-    #             "id":"RxCUI:860975","label":"metformin","vocab":"RxNorm","confidence":0.88
-    #         },
-    #         {
-    #             "mention": "polycystic kidney disease",
-    #             "start": 136, "end": 162, "domain": "Condition",
-    #             "id":"MONDO:0008315","label":"Polycystic kidney disease","vocab":"MONDO","confidence":0.84
-    #         },
-    #     ],
-    # }
+    return (meta, df)

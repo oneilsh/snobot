@@ -4,13 +4,9 @@ install:
 	@echo "Installing dependencies..."
 	uv sync --no-install-project
 
-chat-app:
-	@echo "Running chat app..."
-	uv run streamlit run chat_app.py
-
-ui-app:
+app:
 	@echo "Running UI app..."
-	uv run streamlit run ui_app.py
+	uv run streamlit run app.py
 
 clean:
 	@echo "Cleaning up..."

@@ -1,29 +1,164 @@
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from ui.utils import OMOP_DOMAINS, OMOP_DOMAINS_LITERAL
+from resources.st_resources import sql_db, vec_db, logger
+import json
+import dotenv
+import pprint
+import pandas as pd
+import streamlit as st
+
+dotenv.load_dotenv(override=True)
 
 
 # I believe that pydantic_ai uses type information to build the function-calling schema to support
 # structured output, so we use dataclass and Field and the Literal type to define the expected output format.
 @dataclass
-class SearchConcept:
-    concept_string: str = Field(..., description="The string containing a potential SNOMED concept or synonym to identify.")
-    negated: bool = Field(False, description="Whether the concept is negated in the input text.")
-    probable_domain: OMOP_DOMAINS_LITERAL = Field(..., description=f"The domain that the concept is most likely to belong to. One of {', '.join(OMOP_DOMAINS)}.")
+class Mention:
+    mention_str: str = Field(..., description="The string containing a potential OMOP concept or synonym to identify.")
 
 @dataclass
-class SearchConceptList:
-    concepts: list[SearchConcept] = Field(..., description="A list of SNOMED concepts identified in the input text.")
+class MentionList:
+    mentions: list[Mention] = Field(..., description="A list of potential OMOP concepts or synonyms to identify.")
+
+@dataclass
+class AgentCodedConcept:
+    concept_id: str = Field(..., description="The OMOP concept ID.")
+    concept_name: str = Field(..., description="The OMOP concept name.")
+    negated: bool = Field(False, description="Whether the concept is negated in the input text.")
+
+@dataclass
+class FullCodedConcept:
+    mention_str: str = Field(..., description="The string containing a potential OMOP concept or synonym to identify.")
+    concept_id: str = Field(..., description="The OMOP concept ID.")
+    concept_name: str = Field(..., description="The OMOP concept name.")
+    domain_id: str = Field(..., description="The OMOP domain ID.")
+    vocabulary_id: str = Field(..., description="The OMOP vocabulary ID.")
+    concept_code: str = Field(..., description="The OMOP concept code.")
+    standard: bool = Field(False, description="Whether this is a standard OMOP concept (True if 'S', False otherwise).")
+    negated: bool = Field(False, description="Whether the concept is negated in the input text.")
 
 
-def extract_concepts(text: str) -> SearchConceptList:
+def extract_and_code_mentions(text: str, status_widget) -> list[FullCodedConcept]:
     """Given an input text, returns a list of strings representing potnentially codable SNOMED concepts or synonyms to identify. Entries can be negated to indicate the concept was mentioned in a negated context."""
 
     sub_agent = Agent("gpt-4.1", 
-                      system_prompt="You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. For each concept, determine if it is negated in the context. Return the results as a SearchConceptList dataclass.",
-                      output_type=SearchConceptList)
+                      system_prompt="You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. Return the results as an AgentCodedConcept dataclass.",
+                      output_type=MentionList)
 
+    status_widget.update(label="Identifying mentions...")
     run_result = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
+    mentions = run_result.output.mentions
+    # remove duplicates
+    mentions_str = set([mention.mention_str for mention in mentions])
+
+    coded_concepts: list[FullCodedConcept] = []
+    for found_mention in mentions_str:
+        status_widget.update(label=f"Coding '{found_mention}'...")
+        # todo: this is slow, we can update the status box to show progress
+        coded_concept = code_mention(found_mention, text, status_widget)
+        coded_concepts.append(coded_concept)
+
+    return coded_concepts
+
+
+def get_hits_context(found_mention) -> str:
+    hits = vec_db.query(found_mention, 10) 
+    concept_ids = [hit.concept_id for hit in hits]
+
+    # Get mappings to standard concepts
+    sql_query = f"SELECT concept_id_1, concept_id_2 FROM concept_relationship WHERE concept_id_1 IN ({','.join(concept_ids)}) AND relationship_id = 'Maps to'"
+    mapping_results = sql_db.run_query(sql_query)
     
-    return run_result.output
+    # Create a mapping dict: original_id -> standard_id
+    concept_mappings = {str(row[0]): str(row[1]) for row in mapping_results}
+    
+    # For each original concept, use the standard mapping if available, otherwise use the original
+    final_concept_ids = []
+    for concept_id in concept_ids:
+        if concept_id in concept_mappings:
+            final_concept_ids.append(concept_mappings[concept_id])  # Use standard
+        else:
+            final_concept_ids.append(concept_id)  # Use original (no mapping available)
+    
+    # Remove duplicates while preserving order
+    final_concept_ids = list(dict.fromkeys(final_concept_ids))
+    
+    # now we look up those concept details (mix of standard and non-standard)
+    sql_query = f"SELECT concept_id, concept_name, domain_id, vocabulary_id, concept_code FROM concept WHERE concept_id IN ({','.join(final_concept_ids)})"
+    hits_details = sql_db.run_query(sql_query)
+    hits_details_df = pd.DataFrame(hits_details, 
+                                   columns=['concept_id', 'concept_name', 'domain_id', 'vocabulary_id', 'concept_code'])
+
+    # Add new columns for parent and child concept IDs
+    hits_details_df['parent_concept_ids'] = None
+    hits_details_df['child_concept_ids'] = None
+
+    for hit in hits_details_df.itertuples():
+        sql_query = f"SELECT concept_relationship.concept_id_1, concept.concept_name FROM concept_relationship INNER JOIN concept ON concept_relationship.concept_id_1 = concept.concept_id WHERE concept_id_2 = {hit.concept_id} AND relationship_id = 'Is a'"
+        parents = sql_db.run_query(sql_query)
+        hits_details_df.at[hit.Index, 'parent_concept_ids'] = str(parents)  # Convert to string
+
+        sql_query = f"SELECT concept_relationship.concept_id_1, concept.concept_name FROM concept_relationship INNER JOIN concept ON concept_relationship.concept_id_1 = concept.concept_id WHERE concept_id_1 = {hit.concept_id} AND relationship_id = 'Is a'"
+        children = sql_db.run_query(sql_query)
+        hits_details_df.at[hit.Index, 'child_concept_ids'] = str(children)  # Convert to string
+    
+    return hits_details_df
+
+def code_mention(found_mention: str, context: str, status_widget) -> FullCodedConcept:
+    """Given a found mention and the context, return the coded concept."""
+
+    status_widget.update(label=f"Coding '{found_mention}'... querying databases...")
+
+    hits_details_df = get_hits_context(found_mention)
+
+    markdown_candidates = hits_details_df.to_markdown(index=False)
+    instructions = "From the following context, identify the best fitting OMOP concept and whether it is negated in the context:\n\nContext:\n```" + context + "```\n\nCandidates:\n```\n" + markdown_candidates+ "\n```"
+
+    sub_agent = Agent("gpt-4.1", 
+                      system_prompt="You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. Given a context, a list of candidate OMOP concepts, and the concept_id of the best fitting concept, return the concept_id, concept_name, and whether it is negated in the context. If the candidates available are a poor fit due to phrasing, you can use the search_string tool to find better candidates with a more appropriate phrasing.",
+                      output_type=AgentCodedConcept)
+
+    @sub_agent.tool
+    async def string_search(ctx: RunContext, query: str) -> str:
+        """Search the database for matching concepts by name. Useful when no current candidate seems a good fit but an alternative name can be identified based on the context. If known, search for an OMOP concept_name, or similar medical terminology."""
+        status_widget.update(label=f"Coding '{found_mention}'... searching for alternative phrasing '{query}'...")
+        hits_details_df = get_hits_context(query)
+        return hits_details_df.to_markdown(index=False)
+
+        status_widget.update(label=f"Coding '{found_mention}'... identifying best candidate...")
+    run_result = sub_agent.run_sync(instructions).output
+    
+    # Try to map to standard concept, fall back to original if no mapping exists
+    original_concept_id = run_result.concept_id
+    sql_query = f"SELECT concept_id_2 FROM concept_relationship WHERE concept_id_1 = {original_concept_id} AND relationship_id = 'Maps to'"
+    query_result = sql_db.run_query(sql_query)
+    
+    if query_result:
+        # Found a standard mapping, use it
+        agent_picked_concept_id = query_result[0][0]
+        status_widget.update(label=f"Coding '{found_mention}'... mapped to standard concept...")
+    else:
+        # No standard mapping found, use the original concept
+        agent_picked_concept_id = original_concept_id
+        status_widget.update(label=f"Coding '{found_mention}'... using non-standard concept (no mapping available)...")
+
+    sql_query = f"SELECT concept_id, concept_name, domain_id, vocabulary_id, concept_code, standard_concept FROM concept WHERE concept_id = {agent_picked_concept_id}"
+
+    query_result = sql_db.run_query(sql_query)
+    concept_data = query_result[0]  # Get the first row (tuple/list)
+     
+     # Manually unpack the tuple into the dataclass
+    coded_concept = FullCodedConcept(
+         mention_str=found_mention,
+         concept_id=str(concept_data[0]),
+         concept_name=str(concept_data[1]),
+         domain_id=str(concept_data[2]),
+         vocabulary_id=str(concept_data[3]),
+         concept_code=str(concept_data[4]),
+         standard=concept_data[5] == 'S',  # Convert 'S' to True, everything else to False
+         negated=run_result.negated
+     )
+
+    return coded_concept
