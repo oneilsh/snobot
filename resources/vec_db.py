@@ -39,52 +39,62 @@ class VecDB:
             # Collection doesn't exist yet, we'll create it
             pass
 
-        print("Loading concepts...")
-        df = pd.read_csv(self.source_concept_file, sep="\t", dtype=str, keep_default_na=False, na_values=[""])
-
-        print("Generating embeddings and adding to ChromaDB...")
+        print("Loading concepts in batches...")
         collection = temp_client.get_or_create_collection(name=self.collection_name)
         
-        max_records = len(df)
+        # Process file in chunks to avoid loading everything into memory
         batch_size = 256
+        chunk_size = 10000  # Read file in 10K row chunks
         
-        for i in range(0, max_records, batch_size):
-            batch = df.iloc[i:i + batch_size]
+        # Count total rows first
+        print("Counting total concepts...")
+        total_concepts = sum(1 for _ in open(self.source_concept_file)) - 1  # Exclude header
+        processed = 0
+        
+        print(f"Generating embeddings and adding to ChromaDB, total concepts: {total_concepts}...")
+        
+        # Process file in chunks
+        for chunk in pd.read_csv(self.source_concept_file, sep="\t", dtype=str, 
+                                keep_default_na=False, na_values=[""], chunksize=chunk_size):
             
-            # Generate embeddings using your existing logic
-            embeddings = self.embedding_model.encode(
-                [self.embedding_prefix + concept_name for concept_name in batch["concept_name"].tolist()],
-                convert_to_tensor=True,
-                normalize_embeddings=True,
-            )
-            
-            # Convert embeddings to list format for ChromaDB
-            # embeddings is a 2D tensor (batch_size, embedding_dim), convert to list of lists
-            embeddings_list = embeddings.cpu().numpy().tolist()
-            
-            # Prepare data for ChromaDB
-            documents = batch["concept_name"].tolist()
-            metadatas = [
-                {
-                    "domain_id": row["domain_id"],
-                    "vocabulary_id": row["vocabulary_id"], 
-                    "concept_class_id": row["concept_class_id"],
-                    "standard_concept": row["standard_concept"],
-                    "concept_code": row["concept_code"]
-                }
-                for _, row in batch.iterrows()
-            ]
-            ids = batch["concept_id"].tolist()
-            
-            # Add to ChromaDB
-            collection.add(
-                documents=documents,
-                embeddings=embeddings_list,
-                metadatas=metadatas,
-                ids=ids
-            )
-            
-            print(f"Processed {i + len(batch)} out of {max_records} concepts ({(i + len(batch)) / max_records * 100:.2f}%).")
+            # Process each chunk in batches
+            for i in range(0, len(chunk), batch_size):
+                batch = chunk.iloc[i:i + batch_size]
+                
+                # Generate embeddings using your existing logic
+                embeddings = self.embedding_model.encode(
+                    [self.embedding_prefix + concept_name for concept_name in batch["concept_name"].tolist()],
+                    convert_to_tensor=True,
+                    normalize_embeddings=True,
+                )
+                
+                # Convert embeddings to list format for ChromaDB
+                embeddings_list = embeddings.cpu().numpy().tolist()
+                
+                # Prepare data for ChromaDB
+                documents = batch["concept_name"].tolist()
+                metadatas = [
+                    {
+                        "domain_id": row["domain_id"],
+                        "vocabulary_id": row["vocabulary_id"], 
+                        "concept_class_id": row["concept_class_id"],
+                        "standard_concept": row["standard_concept"],
+                        "concept_code": row["concept_code"]
+                    }
+                    for _, row in batch.iterrows()
+                ]
+                ids = batch["concept_id"].tolist()
+                
+                # Add to ChromaDB
+                collection.add(
+                    documents=documents,
+                    embeddings=embeddings_list,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                
+                processed += len(batch)
+                print(f"Processed {processed} out of {total_concepts} concepts ({processed / total_concepts * 100:.2f}%).")
 
         print(f"ChromaDB initialization complete with {collection.count()} concepts.")
     
