@@ -34,7 +34,6 @@ def show_disclaimer_dialog():
     with st.container(height=400):
         st.markdown(DISCLAIMER_TEXT)
     
-    st.markdown("---")
     st.markdown("**By clicking 'Accept', you acknowledge that you have read and agree to the terms above.**")
     
     col1, col2, col3 = st.columns([1, 1, 1])
