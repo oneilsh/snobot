@@ -1,6 +1,6 @@
 import streamlit as st
-from ui_app import render_ner_ui
-from chat_app import render_chat_app
+from ui.pages.annotator import render_ner_ui
+from ui.pages.chat import render_chat_app
 
 
 # Configure the main page
@@ -25,7 +25,7 @@ ner_page = st.Page(
 )
 
 # Set up navigation
-nav = st.navigation([chat_page, ner_page])
+nav = st.navigation([ner_page, chat_page])
 
 # Run the selected page
 nav.run()

@@ -1,1 +1,1 @@
-from .models import Settings
+# UI module - imports moved to models package

@@ -37,6 +37,6 @@ def sql_query(ctx: RunContext, query: str):
         return results
     except Exception as e:
         logger.error(f"Error in SQL query: {e}")
-        return []
+        return f"Error in SQL query: {e}"
 
 

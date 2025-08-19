@@ -1,9 +1,8 @@
 # Stub resolver — replace with your backend call
-from dataclasses import dataclass
 from typing import Dict, Any, Tuple
-from .models import Settings
+from models import Settings, FullCodedConcept
 import time
-from agents.extract_agent import extract_and_code_mentions, FullCodedConcept
+from agents.extract_agent import extract_and_code_mentions
 import pandas as pd
 
 def resolve_entities_api(text: str, settings: Settings, status_widget) -> Tuple[Dict[str, Any], pd.DataFrame]:

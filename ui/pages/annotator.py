@@ -1,20 +1,22 @@
-# app.py — BioNER + Resolution (modular)
+"""Text annotation and NER interface page for SNOBot."""
+
 import pandas as pd
 import streamlit as st
 
-from ui.models import Settings
+from models import Settings, FullCodedConcept
 from ui.state import init_state, mark_stale, analyze_cb
 from ui.resolver import resolve_entities_api
 from ui.utils import csv_text, OMOP_DOMAINS, DOMAIN_COLORS
-from ui.annotated import render_annotated_component_from_concepts
+from ui.components.annotated import render_annotated_component_from_concepts
 from ui.examples import example_names, get_example
-from agents.extract_agent import FullCodedConcept
 
 
 def render_ner_ui():
+    """Render the Named Entity Recognition and annotation interface."""
     st.set_page_config(layout="wide")
-    init_state()    # ---------- Sidebar ----------
+    init_state()
     
+    # ---------- Sidebar ----------
     with st.sidebar:
         st.title("Settings")
         st.selectbox("Resolver backend", ["Default"], key="backend", on_change=mark_stale)
@@ -47,7 +49,7 @@ def render_ner_ui():
         c1, c2, c3 = st.columns([1, 2, 1])
         with c1:
             st.selectbox(
-                label = "Choose an example",
+                label="Choose an example",
                 options=["— Load example —", *example_names()],
                 key="example_choice",
                 on_change=_on_example_change,
@@ -55,7 +57,6 @@ def render_ner_ui():
             )
         with c3:
             st.button("Analyze", type="primary", use_container_width=True, on_click=analyze_cb)
-
 
     status_ph = st.empty()
 
@@ -104,6 +105,3 @@ def render_ner_ui():
                 "text/csv",
                 use_container_width=False
             )
-
-
-

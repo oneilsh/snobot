@@ -1,8 +1,7 @@
-from pydantic import Field
-from pydantic.dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from ui.utils import OMOP_DOMAINS, OMOP_DOMAINS_LITERAL
 from resources.st_resources import sql_db, vec_db, logger
+from models import Mention, MentionList, AgentCodedConcept, FullCodedConcept
 import json
 import dotenv
 import pprint
@@ -10,34 +9,6 @@ import pandas as pd
 import streamlit as st
 
 dotenv.load_dotenv(override=True)
-
-
-# I believe that pydantic_ai uses type information to build the function-calling schema to support
-# structured output, so we use dataclass and Field and the Literal type to define the expected output format.
-@dataclass
-class Mention:
-    mention_str: str = Field(..., description="The string containing a potential OMOP concept or synonym to identify.")
-
-@dataclass
-class MentionList:
-    mentions: list[Mention] = Field(..., description="A list of potential OMOP concepts or synonyms to identify.")
-
-@dataclass
-class AgentCodedConcept:
-    concept_id: str = Field(..., description="The OMOP concept ID.")
-    concept_name: str = Field(..., description="The OMOP concept name.")
-    negated: bool = Field(False, description="Whether the concept is negated in the input text.")
-
-@dataclass
-class FullCodedConcept:
-    mention_str: str = Field(..., description="The string containing a potential OMOP concept or synonym to identify.")
-    concept_id: str = Field(..., description="The OMOP concept ID.")
-    concept_name: str = Field(..., description="The OMOP concept name.")
-    domain_id: str = Field(..., description="The OMOP domain ID.")
-    vocabulary_id: str = Field(..., description="The OMOP vocabulary ID.")
-    concept_code: str = Field(..., description="The OMOP concept code.")
-    standard: bool = Field(False, description="Whether this is a standard OMOP concept (True if 'S', False otherwise).")
-    negated: bool = Field(False, description="Whether the concept is negated in the input text.")
 
 
 def extract_and_code_mentions(text: str, status_widget) -> list[FullCodedConcept]:

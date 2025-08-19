@@ -1,16 +1,9 @@
 from sentence_transformers import SentenceTransformer
-from pydantic.dataclasses import dataclass
+from models.db import VecDBHit
 import os
 import pandas as pd
 import faiss
 import numpy as np
-
-@dataclass
-class VecDBHit:
-    search_string: str
-    concept_id: str
-    concept_name: str
-    distance: float
 
 
 class VecDB:
