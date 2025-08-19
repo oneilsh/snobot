@@ -46,7 +46,6 @@ class VecDB:
         collection = temp_client.get_or_create_collection(name=self.collection_name)
         
         max_records = len(df)
-        max_records = 10000
         batch_size = 256
         
         for i in range(0, max_records, batch_size):
