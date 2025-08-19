@@ -18,3 +18,4 @@ resources/omop_vocab/*.csv
 resources/omop_vocab/*.parquet
 resources/omop_vocab/*.index
 resources/omop_vocab/*.duckdb
+resources/omop_vocab/chroma_db/
