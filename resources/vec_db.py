@@ -1,8 +1,10 @@
 from sentence_transformers import SentenceTransformer
+from models.db import VecDBHit
 import os
 import pandas as pd
-import faiss
-import numpy as np
+import chromadb
+from chromadb.config import Settings
+
 
 class VecDB:
     def __init__(self):
@@ -12,116 +14,113 @@ class VecDB:
         self.embedding_model = SentenceTransformer(self.embedding_model_name)
         
         self.source_concept_file = "resources/omop_vocab/CONCEPT.csv"
-        # note: these are also hardcoded in Makefile
-        self.embedding_dest_file = "resources/omop_vocab/embeddings.csv"
-        self.faiss_index_file = "resources/omop_vocab/faiss.index"
+        # ChromaDB persistent storage directory
+        self.chroma_db_path = "resources/omop_vocab/chroma_db"
+        self.collection_name = "omop_concepts"
 
-        self.init_embeddings()
-        self.init_faiss_index()
-
-        self.concept_df = self.load_concepts()
-        self.faiss_index = self.load_faiss_index()
+        self.init_chroma_db()
+        self.client = chromadb.PersistentClient(path=self.chroma_db_path)
+        self.collection = self.client.get_or_create_collection(name=self.collection_name)
 
 
-    def init_embeddings(self):
-        """Initialize concept embeddings."""
+    def init_chroma_db(self):
+        """Initialize ChromaDB with concept embeddings."""
         if not os.path.exists(self.source_concept_file):
             raise FileNotFoundError(f"Source file {self.source_concept_file} not found.")
         
-        if os.path.exists(self.embedding_dest_file):
-            print(f"Embeddings file {self.embedding_dest_file} already exists.")
-            return
+        # Create ChromaDB client to check if collection exists and has data
+        temp_client = chromadb.PersistentClient(path=self.chroma_db_path)
+        try:
+            collection = temp_client.get_collection(name=self.collection_name)
+            if collection.count() > 0:
+                print(f"ChromaDB collection '{self.collection_name}' already exists with {collection.count()} concepts.")
+                return
+        except Exception:
+            # Collection doesn't exist yet, we'll create it
+            pass
 
         print("Loading concepts...")
         df = pd.read_csv(self.source_concept_file, sep="\t", dtype=str, keep_default_na=False, na_values=[""])
 
-
-        print("Generating embeddings...")
-        with open(self.embedding_dest_file, "w") as f:
-            f.write("concept_id\tconcept_name\tconcept_embedding\n")
-            max = len(df)
-            #max = 4196
-            for i in range(0, max, 256):
-                batch = df.iloc[i:i + 256]
-                embeddings = self.embedding_model.encode(
-                    [self.embedding_prefix + concept_name for concept_name in batch["concept_name"].tolist()],
-                    convert_to_tensor=True,
-                    normalize_embeddings=True,
-                )
-                for j, embedding in enumerate(embeddings):
-                    f.write(f"{batch['concept_id'].iloc[j]}\t{batch['concept_name'].iloc[j]}\t{embedding.cpu().numpy().tolist()}\n")
-
-                print(f"Processed {i + len(batch)} out of {len(df)} concepts ({(i + len(batch)) / len(df) * 100:.2f}%).")
-
-    def init_faiss_index(self):
-        """Initialize the FAISS index for concept embeddings."""
-        if os.path.exists(self.faiss_index_file):
-            print(f"FAISS index file {self.faiss_index_file} already exists.")
-            return
+        print("Generating embeddings and adding to ChromaDB...")
+        collection = temp_client.get_or_create_collection(name=self.collection_name)
         
-        if not os.path.exists(self.embedding_dest_file):
-            raise FileNotFoundError(f"Embeddings file {self.embedding_dest_file} not initialized.")
-
-        print("Loading embeddings from file...")
-     
-        dimension = 0
-        with open(self.embedding_dest_file, "r") as f:
-            header = f.readline()
-            first_line = f.readline()
-            first_embedding = eval(first_line.split("\t")[2])
-            dimension = len(first_embedding)
-
-        index = faiss.IndexFlatIP(dimension)
+        max_records = len(df)
+        max_records = 10000
+        batch_size = 256
         
-        batch_size = 10000
-        print("Counting total concepts...")
-        total_concepts = sum(1 for _ in open(self.embedding_dest_file)) - 1  # Exclude header
-        # Add embeddings to the FAISS index
-        print(f"Adding embeddings to FAISS index, total concepts: {total_concepts}, batch size: {batch_size}...")
-        for batch in pd.read_csv(self.embedding_dest_file, sep="\t", dtype=str, chunksize=batch_size):
-            batch["concept_embedding"] = batch["concept_embedding"].apply(eval)
-            embeddings = np.vstack(batch["concept_embedding"].values).astype("float32")
-            index.add(embeddings)
-            print(f"Added {index.ntotal} embeddings to FAISS index ({100 * index.ntotal / total_concepts:.2f}%).")
+        for i in range(0, max_records, batch_size):
+            batch = df.iloc[i:i + batch_size]
+            
+            # Generate embeddings using your existing logic
+            embeddings = self.embedding_model.encode(
+                [self.embedding_prefix + concept_name for concept_name in batch["concept_name"].tolist()],
+                convert_to_tensor=True,
+                normalize_embeddings=True,
+            )
+            
+            # Convert embeddings to list format for ChromaDB
+            # embeddings is a 2D tensor (batch_size, embedding_dim), convert to list of lists
+            embeddings_list = embeddings.cpu().numpy().tolist()
+            
+            # Prepare data for ChromaDB
+            documents = batch["concept_name"].tolist()
+            metadatas = [
+                {
+                    "domain_id": row["domain_id"],
+                    "vocabulary_id": row["vocabulary_id"], 
+                    "concept_class_id": row["concept_class_id"],
+                    "standard_concept": row["standard_concept"],
+                    "concept_code": row["concept_code"]
+                }
+                for _, row in batch.iterrows()
+            ]
+            ids = batch["concept_id"].tolist()
+            
+            # Add to ChromaDB
+            collection.add(
+                documents=documents,
+                embeddings=embeddings_list,
+                metadatas=metadatas,
+                ids=ids
+            )
+            
+            print(f"Processed {i + len(batch)} out of {max_records} concepts ({(i + len(batch)) / max_records * 100:.2f}%).")
 
-        faiss.write_index(index, self.faiss_index_file)
-        print(f"FAISS index created and saved to {self.faiss_index_file}.")
-
-    def load_concepts(self):
-        """Load concept embeddings from file."""
-        if not os.path.exists(self.embedding_dest_file):
-            raise FileNotFoundError(f"Embeddings file {self.embedding_dest_file} not found. Please run init_embeddings() first.")
-
-        df = pd.read_csv(self.embedding_dest_file, sep="\t", dtype={"concept_id": str, "concept_name": str})
-        return df
-    
-    def load_faiss_index(self):
-        """Load the FAISS index from file."""
-        if not os.path.exists(self.faiss_index_file):
-            raise FileNotFoundError(f"FAISS index file {self.faiss_index_file} not initialized.")
-        
-        print("Loading FAISS index from file...")
-        index = faiss.read_index(self.faiss_index_file)
-        print(f"FAISS index loaded with {index.ntotal} concepts.")
-        return index
+        print(f"ChromaDB initialization complete with {collection.count()} concepts.")
     
 
-    def query(self, text, top_k=5):
-        """Query the FAISS index for similar OMOP concepts."""
-        if self.faiss_index is None or self.concept_df is None:
-            raise ValueError("FAISS index not initialized.")
+    def query(self, text, top_k=5) -> list[VecDBHit]:
+        """Query ChromaDB for similar OMOP concepts."""
+        if self.collection is None:
+            raise ValueError("ChromaDB collection not initialized.")
         
+        # Generate query embedding using your existing logic
         query_embedding = self.embedding_model.encode(
             [self.embedding_prefix + text],
             convert_to_tensor=True,
             normalize_embeddings=True,
-        ).cpu().numpy().astype("float32")
+        ).cpu().numpy().tolist()[0]  # Get the first (and only) embedding from the batch
 
-        distances, indices = self.faiss_index.search(query_embedding, top_k)
-        results = []
-        for dist, idx in zip(distances[0], indices[0]):
-            concept_id = self.concept_df.iloc[idx]["concept_id"]
-            concept_name = self.concept_df.iloc[idx]["concept_name"]
-            results.append((concept_id, concept_name, float(dist)))
+        # Query ChromaDB
+        results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k
+        )
         
-        return results
+        # Convert results to VecDBHit format
+        hits = []
+        for i in range(len(results['ids'][0])):
+            concept_id = results['ids'][0][i]
+            concept_name = results['documents'][0][i]
+            # ChromaDB returns distances, but we want similarity scores
+            # Convert distance to similarity (higher is better)
+            distance = results['distances'][0][i]
+            hits.append(VecDBHit(
+                search_string=text, 
+                concept_id=concept_id, 
+                concept_name=concept_name, 
+                distance=float(distance)
+            ))
+        
+        return hits

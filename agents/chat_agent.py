@@ -1,26 +1,7 @@
 from pydantic_ai import Agent, RunContext
-from opaiui.app import AgentConfig, AppConfig, AgentState, serve, get_logger, current_deps, render_in_chat, set_status
-from resources.vec_db import VecDB
-from resources.sql_db import SqlDB
-import streamlit as st
+from opaiui.app import get_logger
+from resources.st_resources import sql_db, vec_db, logger
 
-import dotenv
-dotenv.load_dotenv(override=True)
-
-logger = get_logger()
-
-
-# streamlit can cache expensive to compute functions
-@st.cache_resource
-def get_vec_db() -> VecDB:
-    return VecDB()
-
-@st.cache_resource
-def get_sql_db() -> SqlDB:
-    return SqlDB()
-
-sql_db = get_sql_db()
-vec_db = get_vec_db()
 
 
 agent = Agent("gpt-4.1", system_prompt="""
@@ -56,21 +37,6 @@ def sql_query(ctx: RunContext, query: str):
         return results
     except Exception as e:
         logger.error(f"Error in SQL query: {e}")
-        return []
-
-
-
-
-app_config = AppConfig()
-
-agent_configs = {
-    "SNOBot": AgentConfig(
-        agent=agent,
-        greeting = "Hello! I'm SNOBot, your assistant for exploring SNOMED concepts in the OMOP common data model. You can ask me to search for concepts by name or ask questions about the vocabularies.",
-    )
-}
-serve(app_config, agent_configs)
-
-
+        return f"Error in SQL query: {e}"
 
 
