@@ -202,7 +202,6 @@ def _validate_authentication(password, api_key, url_password_valid=False):
 def show_api_key_status():
     """Show API key status in the sidebar."""
     if st.session_state.get("disclaimer_accepted", False):
-        st.sidebar.markdown("---")
         st.sidebar.markdown("### API Key Status")
         
         if st.session_state.get("using_custom_api_key", False):
