@@ -23,14 +23,14 @@ if disclaimer_accepted:
     ner_page = st.Page(
         page=render_ner_ui, 
         title="Text Annotator",
-        icon="🔍"
+        icon="🔍",
+        default=True
     )
 
     chat_page = st.Page(
         page=render_chat_app,
         title="Chat UI",
         icon="💬",
-        default=True
     )
 
     # Set up navigation

@@ -1,4 +1,5 @@
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.settings import ModelSettings
 from ui.utils import OMOP_DOMAINS, OMOP_DOMAINS_LITERAL
 from resources.st_resources import sql_db, vec_db, logger
 from models import Mention, MentionList, AgentCodedConcept, FullCodedConcept
@@ -16,7 +17,8 @@ def extract_and_code_mentions(text: str, status_widget) -> list[FullCodedConcept
 
     sub_agent = Agent("gpt-4.1", 
                       system_prompt="You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. Return the results as an AgentCodedConcept dataclass.",
-                      output_type=MentionList)
+                      output_type=MentionList,
+                      model_settings = ModelSettings(temperature=0.0))
 
     status_widget.update(label="Identifying mentions...")
     run_result = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
@@ -89,7 +91,8 @@ def code_mention(found_mention: str, context: str, status_widget) -> FullCodedCo
 
     sub_agent = Agent("gpt-4.1", 
                       system_prompt="You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. Given a context, a list of candidate OMOP concepts, and the concept_id of the best fitting concept, return the concept_id, concept_name, and whether it is negated in the context. If the candidates available are a poor fit due to phrasing, you can use the search_string tool to find better candidates with a more appropriate phrasing.",
-                      output_type=AgentCodedConcept)
+                      output_type=AgentCodedConcept,
+                      model_settings = ModelSettings(temperature=0.0))
 
     @sub_agent.tool
     async def string_search(ctx: RunContext, query: str) -> str:

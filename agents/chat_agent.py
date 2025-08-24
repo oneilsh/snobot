@@ -1,4 +1,5 @@
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.settings import ModelSettings
 from opaiui.app import get_logger
 from resources.st_resources import sql_db, vec_db, logger
 
@@ -8,8 +9,8 @@ agent = Agent("gpt-4.1", system_prompt="""
 You are SNOBot, an AI assistant designed to help users identify
 and explore the SNOMED subset of the OMOP common data model metadata. 
 Whenever possible, provide detailed information, including concept IDs, names, and standard information.
-Use your knowledge of SNOMED and the OMOP common data model to assist users in their queries.
-              """)
+Use your knowledge of SNOMED and the OMOP common data model to assist users in their queries.""",
+    model_settings = ModelSettings(temperature=0.0))
 
 @agent.tool
 def vec_search(ctx: RunContext, text: str, top_k: int = 5):
