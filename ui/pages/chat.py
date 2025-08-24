@@ -18,6 +18,7 @@ def render_chat_app():
         "SNOBot": AgentConfig(
             agent=agent,
             greeting="Hello! I'm SNOBot, your assistant for exploring SNOMED concepts in the OMOP common data model. You can ask me to search for concepts by name or ask questions about the vocabularies.",
+            rendering_functions=[]
         )
     }
     serve(app_config, agent_configs)

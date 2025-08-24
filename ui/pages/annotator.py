@@ -20,10 +20,12 @@ def render_ner_ui():
     with st.sidebar:
         st.title("Settings")
         st.selectbox("Resolver backend", ["Default"], key="backend", on_change=mark_stale)
-        st.multiselect(
-            "Target Domains", OMOP_DOMAINS,
-            default=["Condition", "Observation"], key="domains", on_change=mark_stale
-        )
+        # target domains currently unused
+        # st.multiselect(
+        #     "Target Domains", OMOP_DOMAINS,
+        #     default=["Condition", "Observation"], key="domains", on_change=mark_stale
+        # )
+        st.session_state.domains = ["Condition", "Observation"]
 
     # ---------- Main: inputs ----------
     st.markdown("#### SNOBot: SNOMED-based Biomedical Named Entity Recognition and Resolution")

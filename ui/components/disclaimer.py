@@ -1,6 +1,13 @@
 """SNOMED CT License Disclaimer Component."""
 
 import streamlit as st
+import os
+import dotenv
+import base64
+from urllib.parse import urlencode
+
+# Load environment variables
+dotenv.load_dotenv(override=True)
 
 
 DISCLAIMER_TEXT = """
@@ -25,22 +32,161 @@ Use of SNOMED CT in this software is governed by the conditions of the following
 """
 
 
-@st.dialog("SNOMED CT License Agreement", width="large")
+def _encode_password_for_url(password):
+    """Encode password for URL parameter (Base64)."""
+    if not password:
+        return ""
+    return base64.b64encode(password.encode('utf-8')).decode('utf-8')
+
+
+def _decode_password_from_url(encoded_password):
+    """Decode password from URL parameter (Base64)."""
+    if not encoded_password:
+        return ""
+    try:
+        return base64.b64decode(encoded_password.encode('utf-8')).decode('utf-8')
+    except Exception:
+        return ""
+
+
+def _get_url_password():
+    """Get password from URL parameters if present."""
+    query_params = st.query_params
+    encoded_pw = query_params.get("pw", "")
+    return _decode_password_from_url(encoded_pw)
+
+
+def _generate_shareable_url(password):
+    """Generate a shareable URL with encoded password."""
+    if not password:
+        return ""
+    
+    encoded_pw = _encode_password_for_url(password)
+    base_url = st.get_option("server.baseUrlPath") or ""
+    
+    # Get current URL without query params
+    current_url = f"http://localhost:8501{base_url}"
+    
+    # Add encoded password parameter
+    params = {"pw": encoded_pw}
+    return f"{current_url}?{urlencode(params)}"
+
+
+@st.dialog("SNOMED CT License Agreement & Authentication", width="large")
 def show_disclaimer_dialog():
-    """Display the SNOMED CT license disclaimer dialog."""
+    """Display the SNOMED CT license disclaimer dialog with authentication."""
     st.markdown("### Important License Information")
     
     # Display the disclaimer text in a scrollable container
-    with st.container(height=400):
+    with st.container(height=300):
         st.markdown(DISCLAIMER_TEXT)
     
+    st.markdown("### Authentication Required")
+    st.markdown("**Please provide either an access password or your own OpenAI API key:**")
+    
+    # Get password from URL if present
+    url_password = _get_url_password()
+    
+    # Authentication form
+    auth_method = st.radio(
+        "Choose authentication method:",
+        ["Use Access Password", "Provide OpenAI API Key"],
+        key="auth_method"
+    )
+    
+    if auth_method == "Use Access Password":
+        # Auto-fill password from URL if available
+        password = st.text_input(
+            "Access Password:", 
+            type="password", 
+            key="access_password",
+            value=url_password
+        )
+        api_key_input = None
+        
+        # Always show shareable URL generator for password method
+        with st.expander("🔗 Generate Shareable URL"):
+            if password:
+                shareable_url = _generate_shareable_url(password)
+                st.code(shareable_url, language="text")
+                st.caption("⚠️ This URL contains an encoded password. Share securely.")
+            else:
+                st.info("Enter a password above to generate a shareable URL")
+    else:
+        api_key_input = st.text_input("OpenAI API Key:", type="password", key="api_key_input")
+        password = None
+    
+    st.markdown("---")
     st.markdown("**By clicking 'Accept', you acknowledge that you have read and agree to the terms above.**")
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         if st.button("Accept", type="primary", use_container_width=True):
-            st.session_state.disclaimer_accepted = True
-            st.rerun()
+            # Validate authentication
+            if _validate_authentication(password, api_key_input):
+                st.session_state.disclaimer_accepted = True
+                # Store the authentication method and key info
+                if api_key_input:
+                    st.session_state.using_custom_api_key = True
+                    st.session_state.api_key_preview = api_key_input[:12] + "..."
+                    # Override the environment variable for this session
+                    os.environ["OPENAI_API_KEY"] = api_key_input
+                else:
+                    st.session_state.using_custom_api_key = False
+                    st.session_state.api_key_preview = None
+                st.rerun()
+            else:
+                st.error("Invalid password or API key. Please try again.")
+
+
+def _validate_authentication(password, api_key):
+    """Validate the provided password or API key."""
+    access_pw = os.getenv("ACCESS_PW")
+    default_api_key = os.getenv("OPENAI_API_KEY")
+    
+    # Debug info (remove this after testing)
+    if password:
+        if access_pw is None:
+            st.error("❌ ACCESS_PW environment variable not found. Please check your .env file.")
+            return False
+        
+        # Strip whitespace and compare
+        password_clean = password.strip()
+        access_pw_clean = access_pw.strip()
+        
+        if password_clean == access_pw_clean:
+            return True
+        else:
+            st.error(f"❌ Password mismatch. Expected length: {len(access_pw_clean)}, Got length: {len(password_clean)}")
+            return False
+            
+    elif api_key:
+        # Basic validation for API key format (starts with sk- and reasonable length)
+        if api_key.startswith("sk-") and len(api_key) > 20:
+            return True
+        else:
+            st.error("❌ Invalid API key format. Must start with 'sk-' and be at least 20 characters.")
+            return False
+    
+    st.error("❌ Please provide either a password or API key.")
+    return False
+
+
+def show_api_key_status():
+    """Show API key status in the sidebar."""
+    if st.session_state.get("disclaimer_accepted", False):
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### API Key Status")
+        
+        if st.session_state.get("using_custom_api_key", False):
+            st.sidebar.success("🔑 Using Custom API Key")
+            if st.session_state.get("api_key_preview"):
+                st.sidebar.caption(f"Key: {st.session_state.api_key_preview}")
+        else:
+            st.sidebar.info("🏢 Using Default API Key")
+            default_key = os.getenv("OPENAI_API_KEY")
+            if not default_key:
+                st.sidebar.warning("⚠️ No default key found")
 
 
 def check_and_show_disclaimer():
