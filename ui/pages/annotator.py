@@ -61,6 +61,7 @@ def render_ner_ui():
         #     default=["Condition", "Observation"], key="domains", on_change=mark_stale
         # )
         st.session_state.domains = ["Condition", "Observation"]
+        st.session_state.backend = "Default"
 
     # ---------- Main: inputs ----------
     st.markdown("#### SNOBot: SNOMED-based Biomedical Named Entity Recognition and Resolution")

@@ -16,6 +16,16 @@ disclaimer_accepted = check_and_show_disclaimer()
 
 # Only show the app if disclaimer has been accepted
 if disclaimer_accepted:
+    # Add title and authorship to sidebar first
+    with st.sidebar:
+        st.markdown("# SNOBot")
+        st.markdown(
+            '<div style="color: #666; font-size: 0.75em; margin-bottom: 1.5rem;">'
+            'Created by <a href="https://tislab.org/members/shawn-oneil.html" target="_blank" style="color: #666; text-decoration: none;">Shawn @ TISLab</a>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+    
     # Show API key status in sidebar
     show_api_key_status()
     
@@ -34,7 +44,7 @@ if disclaimer_accepted:
     )
 
     # Set up navigation
-    nav = st.navigation([ner_page, chat_page])
+    nav = st.navigation([ner_page, chat_page], position="top")
 
     # Run the selected page
     nav.run()
