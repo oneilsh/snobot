@@ -19,11 +19,9 @@ dotenv.load_dotenv(override=True)
 def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedConcept], ExtractionLogger]:
     """Given an input text, returns a list of coded concepts and the extraction log."""
 
-    # Initialize logger
     process_id = str(uuid.uuid4())[:8]
     extraction_logger = ExtractionLogger(text, process_id)
     
-    # Log the start of mention identification
     step_id = extraction_logger.start_step("mention_id", "mention_identification", "Identifying potential SNOMED mentions")
     
     sub_agent = Agent(DEFAULT_MODEL, 
@@ -34,39 +32,13 @@ def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedC
     status_widget.update(label="Identifying mentions...")
     run_result_agent = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
     mentions = run_result_agent.output.mentions
-    
-    # Get usage statistics for logging
     usage = run_result_agent.usage()
     
-    # Log mention identification results with usage statistics
-    extraction_logger.log_step(
-        step_type="mention_identification",
-        description="Identified potential SNOMED mentions from text",
-        input_data={"text_length": len(text), "model": DEFAULT_MODEL},
-        output_data={
-            "raw_mentions": [m.mention_str for m in mentions], 
-            "total_mentions": len(mentions),
-            "usage_stats": {
-                "requests": usage.requests,
-                "request_tokens": usage.request_tokens,
-                "response_tokens": usage.response_tokens,
-                "total_tokens": usage.total_tokens,
-                "details": usage.details
-            }
-        },
-        step_id=step_id
-    )
+    _log_mention_identification(extraction_logger, step_id, text, mentions, usage)
     
-    # remove duplicates
     mentions_str = set([mention.mention_str for mention in mentions])
     
-    # Log deduplication
-    extraction_logger.log_step(
-        step_type="deduplication",
-        description="Removed duplicate mentions",
-        input_data={"mentions_before": len(mentions)},
-        output_data={"mentions_after": len(mentions_str), "unique_mentions": list(mentions_str)}
-    )
+    _log_deduplication(extraction_logger, len(mentions), mentions_str)
 
     coded_concepts: list[FullCodedConcept] = []
     for found_mention in mentions_str:
@@ -74,7 +46,6 @@ def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedC
         coded_concept = code_mention(found_mention, text, status_widget, extraction_logger)
         coded_concepts.append(coded_concept)
 
-    # Finalize the log
     final_results = [concept.to_dict() for concept in coded_concepts]
     extraction_logger.finalize(final_results)
     
@@ -174,29 +145,14 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
     Returns:
         FullCodedConcept with complete OMOP metadata
     """
-    # Start logging for this mention
     mention_log = extraction_logger.start_mention_coding(found_mention)
     
     status_widget.update(label=f"Coding '{found_mention}'... querying databases...")
 
-    # Get initial concept candidates with logging
     step_id = extraction_logger.start_step("initial_vec_search", "initial_vector_search", f"Initial vector database search for '{found_mention}'")
-    
     concept_collection = get_hits_context(found_mention)
     
-    # Log the initial vector search
-    concepts_data = [concept.to_dict() for concept in concept_collection.concepts]
-    extraction_logger.log_step(
-        step_type="initial_vector_search",
-        description=f"Initial vector database search for '{found_mention}'",
-        input_data={"query": found_mention, "max_results": 10},
-        output_data={
-            "concepts": concepts_data,
-            "total_count": len(concept_collection.concepts),
-            "search_query": found_mention
-        },
-        step_id=step_id
-    )
+    _log_initial_vector_search(extraction_logger, step_id, found_mention, concept_collection)
 
     sub_agent = Agent(DEFAULT_MODEL, 
                       system_prompt=f"You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. The initial candidates were found using vector similarity search for '{found_mention}'. Given a context and a YAML-structured list of candidate OMOP concepts with hierarchical information, return the concept_id, concept_name, and whether it is negated in the context. If the initial vector search candidates are a poor fit (e.g., for acronyms or abbreviations), you can use the vector_search_alternative tool to search with expanded terminology. You can also explore the hierarchy using get_concept_context. Use the following examples and guidelines to guide your search: {examples}",
@@ -212,25 +168,10 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
         """
         status_widget.update(label=f"Coding '{found_mention}'... vector search with alternative terminology '{query}'...")
         
-        # Log the alternative vector search
         step_id = extraction_logger.start_step("alt_vector_search", "alternative_vector_search", f"Vector search with alternative terminology")
-        
-        # Perform the search using utility function
         search_results = get_hits_context(query)
         
-        # Log the search with detailed results
-        concepts_data = [concept.to_dict() for concept in search_results.concepts]
-        extraction_logger.log_step(
-            step_type="alternative_vector_search",
-            description=f"Vector search with alternative terminology '{query}'",
-            input_data={"original_mention": found_mention, "alternative_query": query},
-            output_data={
-                "concepts": concepts_data,
-                "total_count": search_results.total_count,
-                "search_query": query
-            },
-            step_id=step_id
-        )
+        _log_alternative_vector_search(extraction_logger, step_id, found_mention, query, search_results)
         
         return search_results.to_yaml()
 
@@ -243,28 +184,13 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
         """
         status_widget.update(label=f"Coding '{found_mention}'... retrieving concept context...")
         
-        # Log the context retrieval
         step_id = extraction_logger.start_step("concept_context", "concept_context", "Retrieving hierarchical concept context")
-        
-        # Get hierarchical context using utility function
         context_results = get_concept_ids_context(concept_ids)
         
-        # Log the context retrieval with detailed results
-        concepts_data = [concept.to_dict() for concept in context_results.concepts]
-        extraction_logger.log_step(
-            step_type="concept_context",
-            description=f"Retrieved hierarchical context for concept IDs",
-            input_data={"concept_ids": concept_ids},
-            output_data={
-                "concepts": concepts_data,
-                "total_count": len(context_results.concepts)
-            },
-            step_id=step_id
-        )
+        _log_concept_context_retrieval(extraction_logger, step_id, concept_ids, context_results)
         
         return context_results.to_yaml()
 
-    # Log agent reasoning step
     step_id = extraction_logger.start_step("agent_reason", "agent_reasoning", "AI agent selecting best concept")
     
     yaml_candidates = concept_collection.to_yaml()
@@ -272,10 +198,135 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
 
     run_result_agent = sub_agent.run_sync(instructions)
     run_result = run_result_agent.output
-    
-    # Get usage statistics for concept coding
     coding_usage = run_result_agent.usage()
     
+    _log_agent_reasoning(extraction_logger, step_id, concept_collection, context, run_result, coding_usage)
+    
+    original_concept_id = run_result.concept_id
+    step_id = extraction_logger.start_step("mapping", "concept_mapping", "Checking for standard concept mapping")
+    
+    sql_query = f"SELECT concept_id_2 FROM concept_relationship WHERE concept_id_1 = {original_concept_id} AND relationship_id = 'Maps to'"
+    query_result = sql_db.run_query(sql_query)
+    
+    if query_result:
+        agent_picked_concept_id = query_result[0][0]
+        status_widget.update(label=f"Coding '{found_mention}'... mapped to standard concept...")
+        mapping_found = True
+    else:
+        agent_picked_concept_id = original_concept_id
+        status_widget.update(label=f"Coding '{found_mention}'... using non-standard concept (no mapping available)...")
+        mapping_found = False
+    
+    _log_concept_mapping(extraction_logger, step_id, original_concept_id, agent_picked_concept_id, mapping_found)
+
+    step_id = extraction_logger.start_step("final_retrieval", "final_concept_retrieval", "Retrieving final concept details")
+    
+    sql_query = f"SELECT concept_id, concept_name, domain_id, vocabulary_id, concept_code, standard_concept FROM concept WHERE concept_id = {agent_picked_concept_id}"
+    query_result = sql_db.run_query(sql_query)
+    concept_data = query_result[0]
+     
+    coded_concept = FullCodedConcept(
+         mention_str=found_mention,
+         concept_id=str(concept_data[0]),
+         concept_name=str(concept_data[1]),
+         domain_id=str(concept_data[2]),
+         vocabulary_id=str(concept_data[3]),
+         concept_code=str(concept_data[4]),
+         standard=concept_data[5] == 'S',
+         negated=run_result.negated
+     )
+    
+    _log_final_concept_retrieval(extraction_logger, step_id, agent_picked_concept_id, coded_concept)
+    
+    extraction_logger.finish_mention_coding(coded_concept.to_dict())
+
+    return coded_concept
+
+
+# ============================================================================
+# LOGGING HELPER FUNCTIONS
+# ============================================================================
+
+def _log_mention_identification(extraction_logger: ExtractionLogger, step_id: str, text: str, mentions: list, usage) -> None:
+    """Log mention identification results with usage statistics."""
+    extraction_logger.log_step(
+        step_type="mention_identification",
+        description="Identified potential SNOMED mentions from text",
+        input_data={"text_length": len(text), "model": DEFAULT_MODEL},
+        output_data={
+            "raw_mentions": [m.mention_str for m in mentions], 
+            "total_mentions": len(mentions),
+            "usage_stats": {
+                "requests": usage.requests,
+                "request_tokens": usage.request_tokens,
+                "response_tokens": usage.response_tokens,
+                "total_tokens": usage.total_tokens,
+                "details": usage.details
+            }
+        },
+        step_id=step_id
+    )
+
+
+def _log_deduplication(extraction_logger: ExtractionLogger, mentions_before: int, mentions_after: list) -> None:
+    """Log mention deduplication results."""
+    extraction_logger.log_step(
+        step_type="deduplication",
+        description="Removed duplicate mentions",
+        input_data={"mentions_before": mentions_before},
+        output_data={"mentions_after": len(mentions_after), "unique_mentions": list(mentions_after)}
+    )
+
+
+def _log_initial_vector_search(extraction_logger: ExtractionLogger, step_id: str, found_mention: str, concept_collection) -> None:
+    """Log initial vector database search results."""
+    concepts_data = [concept.to_dict() for concept in concept_collection.concepts]
+    extraction_logger.log_step(
+        step_type="initial_vector_search",
+        description=f"Initial vector database search for '{found_mention}'",
+        input_data={"query": found_mention, "max_results": 10},
+        output_data={
+            "concepts": concepts_data,
+            "total_count": len(concept_collection.concepts),
+            "search_query": found_mention
+        },
+        step_id=step_id
+    )
+
+
+def _log_alternative_vector_search(extraction_logger: ExtractionLogger, step_id: str, found_mention: str, query: str, search_results) -> None:
+    """Log alternative vector search results."""
+    concepts_data = [concept.to_dict() for concept in search_results.concepts]
+    extraction_logger.log_step(
+        step_type="alternative_vector_search",
+        description=f"Vector search with alternative terminology '{query}'",
+        input_data={"original_mention": found_mention, "alternative_query": query},
+        output_data={
+            "concepts": concepts_data,
+            "total_count": search_results.total_count,
+            "search_query": query
+        },
+        step_id=step_id
+    )
+
+
+def _log_concept_context_retrieval(extraction_logger: ExtractionLogger, step_id: str, concept_ids: list, context_results) -> None:
+    """Log hierarchical concept context retrieval results."""
+    concepts_data = [concept.to_dict() for concept in context_results.concepts]
+    extraction_logger.log_step(
+        step_type="concept_context",
+        description=f"Retrieved hierarchical context for concept IDs",
+        input_data={"concept_ids": concept_ids},
+        output_data={
+            "concepts": concepts_data,
+            "total_count": len(context_results.concepts)
+        },
+        step_id=step_id
+    )
+
+
+def _log_agent_reasoning(extraction_logger: ExtractionLogger, step_id: str, concept_collection, context: str, run_result, coding_usage) -> None:
+    """Log AI agent reasoning and concept selection results."""
     extraction_logger.log_step(
         step_type="agent_reasoning",
         description="AI agent selected best fitting concept",
@@ -298,66 +349,29 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
         },
         step_id=step_id
     )
-    
-    # Try to map to standard concept, fall back to original if no mapping exists
-    original_concept_id = run_result.concept_id
-    step_id = extraction_logger.start_step("mapping", "concept_mapping", "Checking for standard concept mapping")
-    
-    sql_query = f"SELECT concept_id_2 FROM concept_relationship WHERE concept_id_1 = {original_concept_id} AND relationship_id = 'Maps to'"
-    query_result = sql_db.run_query(sql_query)
-    
-    if query_result:
-        # Found a standard mapping, use it
-        agent_picked_concept_id = query_result[0][0]
-        status_widget.update(label=f"Coding '{found_mention}'... mapped to standard concept...")
-        mapping_found = True
-    else:
-        # No standard mapping found, use the original concept
-        agent_picked_concept_id = original_concept_id
-        status_widget.update(label=f"Coding '{found_mention}'... using non-standard concept (no mapping available)...")
-        mapping_found = False
-    
+
+
+def _log_concept_mapping(extraction_logger: ExtractionLogger, step_id: str, original_concept_id: str, final_concept_id: str, mapping_found: bool) -> None:
+    """Log standard concept mapping results."""
     extraction_logger.log_step(
         step_type="concept_mapping",
         description="Checked for standard concept mapping",
         input_data={"original_concept_id": original_concept_id},
         output_data={
-            "final_concept_id": agent_picked_concept_id,
+            "final_concept_id": final_concept_id,
             "mapping_found": mapping_found
         },
         step_id=step_id
     )
 
-    # Final concept retrieval
-    step_id = extraction_logger.start_step("final_retrieval", "final_concept_retrieval", "Retrieving final concept details")
-    
-    sql_query = f"SELECT concept_id, concept_name, domain_id, vocabulary_id, concept_code, standard_concept FROM concept WHERE concept_id = {agent_picked_concept_id}"
 
-    query_result = sql_db.run_query(sql_query)
-    concept_data = query_result[0]  # Get the first row (tuple/list)
-     
-     # Manually unpack the tuple into the dataclass
-    coded_concept = FullCodedConcept(
-         mention_str=found_mention,
-         concept_id=str(concept_data[0]),
-         concept_name=str(concept_data[1]),
-         domain_id=str(concept_data[2]),
-         vocabulary_id=str(concept_data[3]),
-         concept_code=str(concept_data[4]),
-         standard=concept_data[5] == 'S',  # Convert 'S' to True, everything else to False
-         negated=run_result.negated
-     )
-    
+def _log_final_concept_retrieval(extraction_logger: ExtractionLogger, step_id: str, concept_id: str, coded_concept) -> None:
+    """Log final concept retrieval and details."""
     extraction_logger.log_step(
         step_type="final_concept_retrieval",
         description="Retrieved final concept details from database",
-        input_data={"concept_id": agent_picked_concept_id},
+        input_data={"concept_id": concept_id},
         output_data=coded_concept.to_dict(),
         step_id=step_id
     )
-    
-    # Finish logging for this mention
-    extraction_logger.finish_mention_coding(coded_concept.to_dict())
-
-    return coded_concept
 
