@@ -2,10 +2,11 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.settings import ModelSettings
 from opaiui.app import get_logger
 from resources.st_resources import sql_db, vec_db, logger
+from models.model_config import DEFAULT_MODEL
 
 
 
-agent = Agent("gpt-4.1", system_prompt="""
+agent = Agent(DEFAULT_MODEL, system_prompt="""
 You are SNOBot, an AI assistant designed to help users identify
 and explore the SNOMED subset of the OMOP common data model metadata. 
 Whenever possible, provide detailed information, including concept IDs, names, and standard information.

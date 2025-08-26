@@ -137,6 +137,10 @@ def _generate_detailed_step_info(step: LogStep) -> str:
                 lines.append(f"- Selected Concept: {step.output_data.get('selected_concept_name', 'Unknown')} (ID: {step.output_data['selected_concept_id']})")
             if 'negated' in step.output_data:
                 lines.append(f"- Negated: {step.output_data['negated']}")
+            # Add usage stats for agent reasoning
+            if 'usage_stats' in step.output_data:
+                usage = step.output_data['usage_stats']
+                lines.append(f"- Token Usage: {usage.get('total_tokens', 0)} tokens ({usage.get('request_tokens', 0)} request + {usage.get('response_tokens', 0)} response)")
         elif step.step_type == 'concept_mapping':
             if 'mapping_found' in step.output_data:
                 lines.append(f"- Standard Mapping Found: {step.output_data['mapping_found']}")
@@ -158,7 +162,10 @@ def _generate_detailed_step_info(step: LogStep) -> str:
         else:
             # Generic output formatting
             for key, value in step.output_data.items():
-                if isinstance(value, list) and len(value) > 0:
+                if key == 'usage_stats' and isinstance(value, dict):
+                    # Format usage statistics nicely
+                    lines.append(f"- Token Usage: {value.get('total_tokens', 0)} tokens ({value.get('request_tokens', 0)} request + {value.get('response_tokens', 0)} response)")
+                elif isinstance(value, list) and len(value) > 0:
                     if isinstance(value[0], dict) and 'concept_name' in value[0]:
                         # This looks like a concept list
                         lines.append(f"- {key}:")
@@ -262,6 +269,9 @@ def generate_markdown_report(log: ExtractionProcessLog) -> str:
     num_standard = sum(1 for result in log.final_results if result.get('standard', False))
     num_negated = sum(1 for result in log.final_results if result.get('negated', False))
     
+    # Get usage statistics
+    usage_stats = log.get_usage_statistics()
+    
     report.extend([
         "## Process Summary",
         f"- **Mentions identified**: {num_mentions}",
@@ -271,6 +281,43 @@ def generate_markdown_report(log: ExtractionProcessLog) -> str:
         f"- **Total processing time**: {_format_duration(total_duration)}" if total_duration else "- **Total processing time**: Unknown",
         ""
     ])
+    
+    # Add usage statistics section
+    if usage_stats['total_requests'] > 0:
+        from models.model_config import format_cost
+        
+        report.extend([
+            "## Token Usage & Cost Statistics",
+            f"- **Total API Requests**: {usage_stats['total_requests']}",
+            f"- **Request Tokens**: {usage_stats['total_request_tokens']:,}",
+            f"- **Response Tokens**: {usage_stats['total_response_tokens']:,}",
+            f"- **Total Tokens**: {usage_stats['total_tokens']:,}",
+            f"- **Total Cost**: {format_cost(usage_stats['total_cost'])}",
+            f"- **Average Tokens per Request**: {usage_stats['avg_tokens_per_request']:.1f}",
+            f"- **Average Cost per Request**: {format_cost(usage_stats['avg_cost_per_request'])}",
+            ""
+        ])
+        
+        # Show models used
+        if usage_stats['models_used']:
+            models_list = ', '.join(usage_stats['models_used'])
+            report.extend([
+                f"- **Models Used**: {models_list}",
+                ""
+            ])
+        
+        # Add detailed breakdown if any non-zero values exist
+        details = usage_stats['details']
+        if any(details.values()):
+            report.extend([
+                "### Detailed Token Breakdown",
+                f"- **Cached Tokens**: {details['cached_tokens']:,}",
+                f"- **Reasoning Tokens**: {details['reasoning_tokens']:,}",
+                f"- **Accepted Prediction Tokens**: {details['accepted_prediction_tokens']:,}",
+                f"- **Rejected Prediction Tokens**: {details['rejected_prediction_tokens']:,}",
+                f"- **Audio Tokens**: {details['audio_tokens']:,}",
+                ""
+            ])
     
     # Top-level process steps with details
     if log.steps:

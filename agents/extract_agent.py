@@ -3,6 +3,7 @@ from pydantic_ai.settings import ModelSettings
 from ui.utils import OMOP_DOMAINS, OMOP_DOMAINS_LITERAL
 from resources.st_resources import sql_db, vec_db, logger
 from models import Mention, MentionList, AgentCodedConcept, FullCodedConcept, EnhancedConcept, ConceptRelation, ConceptCollection, ExtractionLogger
+from models.model_config import DEFAULT_MODEL
 import json
 import dotenv
 import pprint
@@ -25,21 +26,34 @@ def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedC
     # Log the start of mention identification
     step_id = extraction_logger.start_step("mention_id", "mention_identification", "Identifying potential SNOMED mentions")
     
-    sub_agent = Agent("gpt-4.1", 
+    sub_agent = Agent(DEFAULT_MODEL, 
                       system_prompt=f"You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. When identifying codable spans, consider the following examples and guidelines: {examples}. Note that your job is simple to identify text spans in need of coding; a subsequent process will be used to identifying matching concepts.",
                       output_type=MentionList,
                       model_settings = ModelSettings(temperature=0.0))
 
     status_widget.update(label="Identifying mentions...")
-    run_result = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
-    mentions = run_result.output.mentions
+    run_result_agent = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
+    mentions = run_result_agent.output.mentions
     
-    # Log mention identification results
+    # Get usage statistics for logging
+    usage = run_result_agent.usage()
+    
+    # Log mention identification results with usage statistics
     extraction_logger.log_step(
         step_type="mention_identification",
         description="Identified potential SNOMED mentions from text",
-        input_data={"text_length": len(text), "model": "gpt-4.1"},
-        output_data={"raw_mentions": [m.mention_str for m in mentions], "total_mentions": len(mentions)},
+        input_data={"text_length": len(text), "model": DEFAULT_MODEL},
+        output_data={
+            "raw_mentions": [m.mention_str for m in mentions], 
+            "total_mentions": len(mentions),
+            "usage_stats": {
+                "requests": usage.requests,
+                "request_tokens": usage.request_tokens,
+                "response_tokens": usage.response_tokens,
+                "total_tokens": usage.total_tokens,
+                "details": usage.details
+            }
+        },
         step_id=step_id
     )
     
@@ -184,7 +198,7 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
         step_id=step_id
     )
 
-    sub_agent = Agent("gpt-4.1", 
+    sub_agent = Agent(DEFAULT_MODEL, 
                       system_prompt=f"You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. The initial candidates were found using vector similarity search for '{found_mention}'. Given a context and a YAML-structured list of candidate OMOP concepts with hierarchical information, return the concept_id, concept_name, and whether it is negated in the context. If the initial vector search candidates are a poor fit (e.g., for acronyms or abbreviations), you can use the vector_search_alternative tool to search with expanded terminology. You can also explore the hierarchy using get_concept_context. Use the following examples and guidelines to guide your search: {examples}",
                       output_type=AgentCodedConcept,
                       model_settings = ModelSettings(temperature=0.0))
@@ -256,20 +270,31 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
     yaml_candidates = concept_collection.to_yaml()
     instructions = f"From the following context, identify the best fitting OMOP concept and whether it is negated in the context:\n\nContext:\n```\n{context}\n```\n\nCandidate Concepts (YAML format):\n```yaml\n{yaml_candidates}\n```"
 
-    run_result = sub_agent.run_sync(instructions).output
+    run_result_agent = sub_agent.run_sync(instructions)
+    run_result = run_result_agent.output
+    
+    # Get usage statistics for concept coding
+    coding_usage = run_result_agent.usage()
     
     extraction_logger.log_step(
         step_type="agent_reasoning",
         description="AI agent selected best fitting concept",
         input_data={
-            "model": "gpt-4.1",
+            "model": DEFAULT_MODEL,
             "num_candidates": len(concept_collection.concepts),
             "context_length": len(context)
         },
         output_data={
             "selected_concept_id": run_result.concept_id,
             "selected_concept_name": run_result.concept_name,
-            "negated": run_result.negated
+            "negated": run_result.negated,
+            "usage_stats": {
+                "requests": coding_usage.requests,
+                "request_tokens": coding_usage.request_tokens,
+                "response_tokens": coding_usage.response_tokens,
+                "total_tokens": coding_usage.total_tokens,
+                "details": coding_usage.details
+            }
         },
         step_id=step_id
     )
@@ -335,3 +360,4 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
     extraction_logger.finish_mention_coding(coded_concept.to_dict())
 
     return coded_concept
+

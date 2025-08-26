@@ -119,7 +119,17 @@ def render_ner_ui():
             st.session_state.extraction_logger = payload[2]  # Store the logger
             st.session_state.results = {"payload": payload, "text": input_text, "settings": settings}
             st.session_state.stale = False
-            status_widget.update(label="Done ✅", state="complete")
+            
+            # Get cost information for status message
+            log_data = st.session_state.extraction_logger.log
+            usage_stats = log_data.get_usage_statistics()
+            if usage_stats['total_requests'] > 0:
+                from models.model_config import format_cost
+                cost_info = f" (Cost: {format_cost(usage_stats['total_cost'])})"
+            else:
+                cost_info = ""
+            
+            status_widget.update(label=f"Done ✅{cost_info}", state="complete")
 
     # ---------- Display ----------
     if st.session_state.results:
@@ -178,6 +188,37 @@ def render_ner_ui():
                 with col4:
                     num_negated = sum(1 for result in log_data.final_results if result.get('negated', False))
                     st.metric("Negated Concepts", num_negated)
+                
+                # Add usage metrics
+                usage_stats = log_data.get_usage_statistics()
+                if usage_stats['total_requests'] > 0:
+                    from models.model_config import format_cost
+                    
+                    st.subheader("Token Usage & Cost")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("API Requests", usage_stats['total_requests'])
+                    with col2:
+                        st.metric("Total Tokens", f"{usage_stats['total_tokens']:,}")
+                    with col3:
+                        cost_formatted = format_cost(usage_stats['total_cost'])
+                        st.metric("Total Cost", cost_formatted)
+                    with col4:
+                        avg_cost = format_cost(usage_stats['avg_cost_per_request'])
+                        st.metric("Avg Cost/Request", avg_cost)
+                    
+                    # Second row with more details
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Request Tokens", f"{usage_stats['total_request_tokens']:,}")
+                    with col2:
+                        st.metric("Response Tokens", f"{usage_stats['total_response_tokens']:,}")
+                    with col3:
+                        st.metric("Avg Tokens/Request", f"{usage_stats['avg_tokens_per_request']:.1f}")
+                    with col4:
+                        if usage_stats['models_used']:
+                            models_text = ', '.join(usage_stats['models_used'])
+                            st.metric("Models Used", models_text)
                 
                 # Markdown Report
                 with st.expander("Detailed Report", expanded=False):

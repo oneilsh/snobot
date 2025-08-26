@@ -81,6 +81,88 @@ class ExtractionProcessLog:
             return (self.end_time - self.start_time).total_seconds() * 1000
         return None
     
+    def get_usage_statistics(self) -> Dict[str, Any]:
+        """Aggregate usage statistics from all steps."""
+        total_requests = 0
+        total_request_tokens = 0
+        total_response_tokens = 0
+        total_tokens = 0
+        detailed_breakdown = {
+            'accepted_prediction_tokens': 0,
+            'audio_tokens': 0,
+            'reasoning_tokens': 0,
+            'rejected_prediction_tokens': 0,
+            'cached_tokens': 0
+        }
+        models_used = set()
+        total_cost = 0.0
+        
+        # Import here to avoid circular imports
+        from models.model_config import get_model_config
+        
+        # Aggregate from top-level steps
+        for step in self.steps:
+            if step.output_data and 'usage_stats' in step.output_data:
+                usage = step.output_data['usage_stats']
+                total_requests += usage.get('requests', 0)
+                total_request_tokens += usage.get('request_tokens', 0)
+                total_response_tokens += usage.get('response_tokens', 0)
+                total_tokens += usage.get('total_tokens', 0)
+                
+                # Track models used and calculate cost
+                if step.input_data and 'model' in step.input_data:
+                    model_name = step.input_data['model']
+                    models_used.add(model_name)
+                    model_config = get_model_config(model_name)
+                    step_cost = model_config.calculate_cost(
+                        usage.get('request_tokens', 0),
+                        usage.get('response_tokens', 0)
+                    )
+                    total_cost += step_cost
+                
+                # Aggregate detailed breakdown
+                details = usage.get('details', {})
+                for key in detailed_breakdown:
+                    detailed_breakdown[key] += details.get(key, 0)
+        
+        # Aggregate from mention-level steps
+        for mention_log in self.mention_logs:
+            for step in mention_log.steps:
+                if step.output_data and 'usage_stats' in step.output_data:
+                    usage = step.output_data['usage_stats']
+                    total_requests += usage.get('requests', 0)
+                    total_request_tokens += usage.get('request_tokens', 0)
+                    total_response_tokens += usage.get('response_tokens', 0)
+                    total_tokens += usage.get('total_tokens', 0)
+                    
+                    # Track models used and calculate cost
+                    if step.input_data and 'model' in step.input_data:
+                        model_name = step.input_data['model']
+                        models_used.add(model_name)
+                        model_config = get_model_config(model_name)
+                        step_cost = model_config.calculate_cost(
+                            usage.get('request_tokens', 0),
+                            usage.get('response_tokens', 0)
+                        )
+                        total_cost += step_cost
+                    
+                    # Aggregate detailed breakdown
+                    details = usage.get('details', {})
+                    for key in detailed_breakdown:
+                        detailed_breakdown[key] += details.get(key, 0)
+        
+        return {
+            'total_requests': total_requests,
+            'total_request_tokens': total_request_tokens,
+            'total_response_tokens': total_response_tokens,
+            'total_tokens': total_tokens,
+            'details': detailed_breakdown,
+            'models_used': list(models_used),
+            'total_cost': total_cost,
+            'avg_tokens_per_request': total_tokens / total_requests if total_requests > 0 else 0,
+            'avg_cost_per_request': total_cost / total_requests if total_requests > 0 else 0
+        }
+    
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         result = {
