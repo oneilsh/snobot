@@ -4,6 +4,18 @@ import os
 import pandas as pd
 import chromadb
 from chromadb.config import Settings
+import logging
+import sys
+
+# Configure logging to output to stdout (which gets captured by systemd)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - VecDB - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 class VecDB:
@@ -33,13 +45,13 @@ class VecDB:
         try:
             collection = temp_client.get_collection(name=self.collection_name)
             if collection.count() > 0:
-                print(f"ChromaDB collection '{self.collection_name}' already exists with {collection.count()} concepts.")
+                logger.info(f"ChromaDB collection '{self.collection_name}' already exists with {collection.count()} concepts.")
                 return
         except Exception:
             # Collection doesn't exist yet, we'll create it
             pass
 
-        print("Loading concepts in batches...")
+        logger.info("Loading OMOP concepts in batches...")
         collection = temp_client.get_or_create_collection(name=self.collection_name)
         
         # Process file in chunks to avoid loading everything into memory
@@ -47,11 +59,11 @@ class VecDB:
         chunk_size = 10000  # Read file in 10K row chunks
         
         # Count total rows first
-        print("Counting total concepts...")
+        logger.info("Counting total concepts...")
         total_concepts = sum(1 for _ in open(self.source_concept_file)) - 1  # Exclude header
         processed = 0
         
-        print(f"Generating embeddings and adding to ChromaDB, total concepts: {total_concepts}...")
+        logger.info(f"Generating embeddings and adding to ChromaDB, total concepts: {total_concepts}...")
         
         # Process file in chunks
         for chunk in pd.read_csv(self.source_concept_file, sep="\t", dtype=str, 
@@ -94,9 +106,10 @@ class VecDB:
                 )
                 
                 processed += len(batch)
-                print(f"Processed {processed} out of {total_concepts} concepts ({processed / total_concepts * 100:.2f}%).")
+                if processed % 1000 == 0 or processed == total_concepts:  # Log every 1000 concepts or at completion
+                    logger.info(f"Processed {processed} out of {total_concepts} concepts ({processed / total_concepts * 100:.2f}%)")
 
-        print(f"ChromaDB initialization complete with {collection.count()} concepts.")
+        logger.info(f"ChromaDB initialization complete with {collection.count()} concepts.")
     
 
     def query(self, text, top_k=5) -> list[VecDBHit]:

@@ -1,5 +1,17 @@
 import duckdb
 import os
+import logging
+import sys
+
+# Configure logging to output to stdout (which gets captured by systemd)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - SqlDB - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 class SqlDB:
     def __init__(self):
@@ -25,10 +37,11 @@ class SqlDB:
             conn = duckdb.connect(self.db_path)
             tables = conn.execute("SHOW TABLES;").fetchall()
             if tables:
-                print("Database already initialized with tables:", tables)
+                logger.info(f"SQL Database already initialized with tables: {[table[0] for table in tables]}")
                 return
 
         # Connect to DuckDB
+        logger.info("Initializing SQL Database with OMOP vocabulary tables...")
         conn = duckdb.connect(self.db_path)
 
         # Create tables and load data
@@ -105,11 +118,20 @@ class SqlDB:
         """)
 
 
+        logger.info("Creating database tables...")
+        
+        # Load data from CSV files
         for table, csv in self.csvs.items():
+            logger.info(f"Loading data into {table} table from {csv}...")
             conn.execute(f"INSERT INTO {table} SELECT * FROM read_csv_auto('{csv}', sep='\t');")
+            
+            # Get row count for logging
+            row_count = conn.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0]
+            logger.info(f"Loaded {row_count:,} rows into {table} table")
 
         conn.commit()
         conn.close()
+        logger.info("SQL Database initialization complete!")
 
     def run_query(self, query: str):
         """Run a SQL query against the DuckDB database."""
