@@ -3,7 +3,7 @@ from typing import Any, List
 import pandas as pd
 import re
 from ui.utils import OMOP_DOMAINS, DOMAIN_COLORS
-from agents.extract_agent import FullCodedConcept
+from models import FullCodedConcept
 
 def render_annotated_component_from_concepts(
     text: str,

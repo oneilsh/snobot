@@ -4,6 +4,9 @@ from .core import (
     MentionList,
     AgentCodedConcept,
     FullCodedConcept,
+    ConceptRelation,
+    EnhancedConcept,
+    ConceptCollection,
 )
 from .ui import Settings
 from .db import VecDBHit
@@ -13,6 +16,9 @@ __all__ = [
     "MentionList", 
     "AgentCodedConcept",
     "FullCodedConcept",
+    "ConceptRelation",
+    "EnhancedConcept",
+    "ConceptCollection",
     "Settings",
     "VecDBHit",
 ]
