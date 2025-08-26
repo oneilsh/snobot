@@ -10,6 +10,12 @@ from .core import (
 )
 from .ui import Settings
 from .db import VecDBHit
+from .extraction_log import (
+    LogStep,
+    MentionCodingLog,
+    ExtractionProcessLog,
+    ExtractionLogger,
+)
 
 __all__ = [
     "Mention",
@@ -21,4 +27,8 @@ __all__ = [
     "ConceptCollection",
     "Settings",
     "VecDBHit",
+    "LogStep",
+    "MentionCodingLog", 
+    "ExtractionProcessLog",
+    "ExtractionLogger",
 ]

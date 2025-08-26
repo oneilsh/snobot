@@ -116,6 +116,7 @@ def render_ner_ui():
             settings = Settings(backend=st.session_state.backend, domains=st.session_state.domains)
             payload = resolve_entities_api(input_text, settings, status_widget)
             st.session_state.entities_df = payload[1]
+            st.session_state.extraction_logger = payload[2]  # Store the logger
             st.session_state.results = {"payload": payload, "text": input_text, "settings": settings}
             st.session_state.stale = False
             status_widget.update(label="Done ✅", state="complete")
@@ -153,3 +154,56 @@ def render_ner_ui():
                 "text/csv",
                 use_container_width=False
             )
+        
+        # Process Log Section
+        if hasattr(st.session_state, 'extraction_logger') and st.session_state.extraction_logger:
+            extraction_logger = st.session_state.extraction_logger
+            log_data = extraction_logger.get_log()
+            
+            with st.expander("Process Log", expanded=False):
+                # Summary stats
+                total_duration = log_data.get_total_duration_ms()
+                if total_duration:
+                    duration_str = f"{total_duration/1000:.2f}s" if total_duration >= 1000 else f"{total_duration:.0f}ms"
+                    st.metric("Total Processing Time", duration_str)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Mentions Identified", len(log_data.mention_logs))
+                with col2:
+                    st.metric("Concepts Coded", len(log_data.final_results))
+                with col3:
+                    num_standard = sum(1 for result in log_data.final_results if result.get('standard', False))
+                    st.metric("Standard Concepts", num_standard)
+                with col4:
+                    num_negated = sum(1 for result in log_data.final_results if result.get('negated', False))
+                    st.metric("Negated Concepts", num_negated)
+                
+                # Markdown Report
+                with st.expander("Detailed Report", expanded=False):
+                    markdown_report = log_data.to_markdown_report()
+                    st.markdown(markdown_report)
+                
+                # Raw log data
+                with st.expander("Raw Log Data", expanded=False):
+                    st.json(log_data.to_dict())
+                
+                # Download buttons below expanders
+                st.subheader("Downloads")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        "Download Report (.md)",
+                        log_data.to_markdown_report(),
+                        f"extraction_report_{log_data.process_id}.md",
+                        "text/markdown",
+                        use_container_width=True
+                    )
+                with col2:
+                    st.download_button(
+                        "Download Raw Log (.json)",
+                        log_data.to_json(),
+                        f"extraction_log_{log_data.process_id}.json",
+                        "application/json",
+                        use_container_width=True
+                    )
