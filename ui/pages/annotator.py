@@ -90,7 +90,7 @@ def render_ner_ui():
                 st.session_state.input_text = get_example(name)
                 mark_stale()
 
-        c1, c2, c3 = st.columns([1, 2, 1])
+        c1, c2, c3 = st.columns([1, 1, 1])
         with c1:
             st.selectbox(
                 label="Choose an example",
