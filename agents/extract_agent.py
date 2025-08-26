@@ -8,15 +8,16 @@ import dotenv
 import pprint
 import pandas as pd
 import streamlit as st
+from agents.strings import examples
 
 dotenv.load_dotenv(override=True)
 
 
 def extract_and_code_mentions(text: str, status_widget) -> list[FullCodedConcept]:
-    """Given an input text, returns a list of strings representing potnentially codable SNOMED concepts or synonyms to identify. Entries can be negated to indicate the concept was mentioned in a negated context."""
+    """Given an input text, returns a list of strings representing potnentially codable SNOMED concepts or synonyms to identify."""
 
     sub_agent = Agent("gpt-4.1", 
-                      system_prompt="You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. Return the results as an AgentCodedConcept dataclass.",
+                      system_prompt=f"You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. When identifying codable spans, consider the following examples and guidelines: {examples}. Note that your job is simple to identify text spans in need of coding; a subsequent process will be used to identifying matching concepts.",
                       output_type=MentionList,
                       model_settings = ModelSettings(temperature=0.0))
 
@@ -36,11 +37,8 @@ def extract_and_code_mentions(text: str, status_widget) -> list[FullCodedConcept
     return coded_concepts
 
 
-def get_hits_context(found_mention) -> str:
-    hits = vec_db.query(found_mention, 10) 
-    concept_ids = [hit.concept_id for hit in hits]
-
-    # Get mappings to standard concepts
+def get_concept_ids_context(concept_ids: list[str]) -> pd.DataFrame:
+  # Get mappings to standard concepts
     sql_query = f"SELECT concept_id_1, concept_id_2 FROM concept_relationship WHERE concept_id_1 IN ({','.join(concept_ids)}) AND relationship_id = 'Maps to'"
     mapping_results = sql_db.run_query(sql_query)
     
@@ -76,6 +74,15 @@ def get_hits_context(found_mention) -> str:
         sql_query = f"SELECT concept_relationship.concept_id_1, concept.concept_name FROM concept_relationship INNER JOIN concept ON concept_relationship.concept_id_1 = concept.concept_id WHERE concept_id_1 = {hit.concept_id} AND relationship_id = 'Is a'"
         children = sql_db.run_query(sql_query)
         hits_details_df.at[hit.Index, 'child_concept_ids'] = str(children)  # Convert to string
+
+    return hits_details_df
+
+
+def get_hits_context(found_mention) -> pd.DataFrame:
+    hits = vec_db.query(found_mention, 10) 
+    concept_ids = [hit.concept_id for hit in hits]
+
+    hits_details_df = get_concept_ids_context(concept_ids)
     
     return hits_details_df
 
@@ -86,11 +93,9 @@ def code_mention(found_mention: str, context: str, status_widget) -> FullCodedCo
 
     hits_details_df = get_hits_context(found_mention)
 
-    markdown_candidates = hits_details_df.to_markdown(index=False)
-    instructions = "From the following context, identify the best fitting OMOP concept and whether it is negated in the context:\n\nContext:\n```" + context + "```\n\nCandidates:\n```\n" + markdown_candidates+ "\n```"
 
     sub_agent = Agent("gpt-4.1", 
-                      system_prompt="You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. Given a context, a list of candidate OMOP concepts, and the concept_id of the best fitting concept, return the concept_id, concept_name, and whether it is negated in the context. If the candidates available are a poor fit due to phrasing, you can use the search_string tool to find better candidates with a more appropriate phrasing.",
+                      system_prompt=f"You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. Given a context, a list of candidate OMOP concepts, and the concept_id of the best fitting concept, return the concept_id, concept_name, and whether it is negated in the context. If the candidates available are a poor fit due to phrasing, you can use the search_string tool to find better candidates with a more appropriate phrasing. You should also explore the hierarchy as necessary to identify the best fitting concepts. Use the following examples and guidelines to guide your search: {examples}",
                       output_type=AgentCodedConcept,
                       model_settings = ModelSettings(temperature=0.0))
 
@@ -101,7 +106,17 @@ def code_mention(found_mention: str, context: str, status_widget) -> FullCodedCo
         hits_details_df = get_hits_context(query)
         return hits_details_df.to_markdown(index=False)
 
-        status_widget.update(label=f"Coding '{found_mention}'... identifying best candidate...")
+    @sub_agent.tool
+    async def get_concept_context(ctx: RunContext, concept_ids: list[str]) -> str:
+        """Retrieve context about a list of of concept_ids in the form of parents and children concepts. Useful to identify potential more-general or more-specific concepts."""
+        status_widget.update(label=f"Coding '{found_mention}'... retrieving concept context...")
+        hits_details_df = get_concept_ids_context(concept_ids)
+        return hits_details_df.to_markdown(index=False)
+
+
+    markdown_candidates = hits_details_df.to_markdown(index=False)
+    instructions = f"From the following context, identify the best fitting OMOP concept and whether it is negated in the context:\n\nContext:\n```" + context + "```\n\nCandidates:\n```\n" + markdown_candidates+ "\n```"
+
     run_result = sub_agent.run_sync(instructions).output
     
     # Try to map to standard concept, fall back to original if no mapping exists
