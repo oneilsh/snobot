@@ -2,6 +2,8 @@ import streamlit as st
 from ui.pages.annotator import render_ner_ui
 from ui.pages.chat import render_chat_app
 from ui.components.disclaimer import check_and_show_disclaimer, show_api_key_status
+# ensure these are triggered to load
+from resources.st_resources import vec_db, sql_db
 
 
 # Configure the main page
