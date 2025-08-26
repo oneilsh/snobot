@@ -24,14 +24,18 @@ apt install -y nginx ufw python3-pip curl git
 
 # Install uv
 echo "Installing uv..."
+# Remove any existing uv installations to avoid conflicts
+rm -f /usr/local/bin/uv /usr/local/bin/uvx
 curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.cargo/bin:$PATH"
-ln -sf ~/.cargo/bin/uv /usr/local/bin/uv
+# Copy uv to system location so all users can access it
+cp ~/.local/bin/uv /usr/local/bin/uv
+cp ~/.local/bin/uvx /usr/local/bin/uvx
+chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
 # Create snobot user
 echo "Creating snobot user..."
 if ! id "snobot" &>/dev/null; then
-    adduser --system --group --no-create-home snobot
+    adduser --system --group --home /opt/snobot snobot
     usermod -s /bin/bash snobot
 fi
 
