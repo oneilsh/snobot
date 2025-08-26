@@ -1,11 +1,11 @@
 """Chat interface page for SNOBot."""
 
 import streamlit as st
-import dotenv
 from opaiui.app import AgentConfig, AppConfig, serve
 from agents.chat_agent import agent
 
-dotenv.load_dotenv(override=True)
+# Load environment variables (secure in production, local in development)
+import load_env_secure
 
 
 def render_chat_app():
