@@ -54,6 +54,8 @@ For secure deployment on an Ubuntu server:
 
 3. **Add your OMOP vocabulary files** to `resources/omop_vocab/`
 
+*Warning*: Be sure to create `.env` and unzip your vocab files prior to `make deploy`.
+
 4. **Deploy with one command**:
    ```bash
    make deploy
