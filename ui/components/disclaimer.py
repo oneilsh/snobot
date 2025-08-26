@@ -78,7 +78,7 @@ def _generate_shareable_url(password):
     return f"{current_url}?{urlencode(params)}"
 
 
-@st.dialog("SNOMED CT License Agreement & Authentication", width="large")
+@st.dialog("SNOMED CT License Agreement", width="large")
 def show_disclaimer_dialog():
     """Display the SNOMED CT license disclaimer dialog with authentication."""
     st.markdown("### Important License Information")
@@ -87,48 +87,57 @@ def show_disclaimer_dialog():
     with st.container(height=300):
         st.markdown(DISCLAIMER_TEXT)
     
+    # Check if ACCESS_PW environment variable is available
+    access_pw_available = os.getenv("ACCESS_PW") is not None
+    
     # Get password from URL if present and validate it
     url_password = _get_url_password()
     url_password_valid = url_password and _validate_url_password(url_password)
     
-    if url_password_valid:
-        # URL password is valid - skip password entry, make API key optional
-        st.markdown("### Authentication")
-        
-        st.markdown("Using password from URL.")
-
-        password = url_password
-        api_key_input = st.text_input("OpenAI API Key (optional, leave blank to use default):", type="password", key="api_key_input")
-    else:
-        # No valid URL password - show full authentication options
-        st.markdown("### Authentication Required")
-        st.markdown("**Please provide either an access password or your own OpenAI API key:**")
-        
-        # Authentication form
-        auth_method = st.radio(
-            "Choose authentication method:",
-            ["Use Access Password", "Provide OpenAI API Key"],
-            key="auth_method"
-        )
-        
-        if auth_method == "Use Access Password":
-            # Auto-fill password from URL if available (but invalid)
-            password = st.text_input(
-                "Access Password:", 
-                type="password", 
-                key="access_password",
-                value=url_password
-            )
-            api_key_input = None
+    # Initialize variables
+    password = None
+    api_key_input = None
+    
+    # Only show authentication section if ACCESS_PW is available
+    if access_pw_available:
+        if url_password_valid:
+            # URL password is valid - skip password entry, make API key optional
+            st.markdown("### Authentication")
             
-            # Automatically update URL with encoded password for easy sharing
-            if password and password != url_password:
-                # Update the URL with the encoded password
-                encoded_pw = _encode_password_for_url(password)
-                st.query_params["pw"] = encoded_pw
+            st.markdown("Using password from URL.")
+
+            password = url_password
+            api_key_input = st.text_input("OpenAI API Key (optional, leave blank to use default):", type="password", key="api_key_input")
         else:
-            api_key_input = st.text_input("OpenAI API Key:", type="password", key="api_key_input")
-            password = None
+            # No valid URL password - show full authentication options
+            st.markdown("### Authentication Required")
+            st.markdown("**Please provide either an access password or your own OpenAI API key:**")
+            
+            # Authentication form
+            auth_method = st.radio(
+                "Choose authentication method:",
+                ["Use Access Password", "Provide OpenAI API Key"],
+                key="auth_method"
+            )
+            
+            if auth_method == "Use Access Password":
+                # Auto-fill password from URL if available (but invalid)
+                password = st.text_input(
+                    "Access Password:", 
+                    type="password", 
+                    key="access_password",
+                    value=url_password
+                )
+                api_key_input = None
+                
+                # Automatically update URL with encoded password for easy sharing
+                if password and password != url_password:
+                    # Update the URL with the encoded password
+                    encoded_pw = _encode_password_for_url(password)
+                    st.query_params["pw"] = encoded_pw
+            else:
+                api_key_input = st.text_input("OpenAI API Key:", type="password", key="api_key_input")
+                password = None
     
     st.markdown("---")
     st.markdown("**By clicking 'Accept', you acknowledge that you have read and agree to the terms above.**")
@@ -137,7 +146,7 @@ def show_disclaimer_dialog():
     with col2:
         if st.button("Accept", type="primary", use_container_width=True):
             # Validate authentication
-            if _validate_authentication(password, api_key_input, url_password_valid):
+            if _validate_authentication(password, api_key_input, url_password_valid, access_pw_available):
                 st.session_state.disclaimer_accepted = True
                 # Store the authentication method and key info
                 if api_key_input:
@@ -153,10 +162,14 @@ def show_disclaimer_dialog():
                 st.error("Invalid password or API key. Please try again.")
 
 
-def _validate_authentication(password, api_key, url_password_valid=False):
+def _validate_authentication(password, api_key, url_password_valid=False, access_pw_available=True):
     """Validate the provided password or API key."""
     access_pw = os.getenv("ACCESS_PW")
     default_api_key = os.getenv("OPENAI_API_KEY")
+    
+    # If no ACCESS_PW is available, authentication is not required
+    if not access_pw_available:
+        return True
     
     # If URL password is valid, we only need to validate API key if provided
     if url_password_valid:
