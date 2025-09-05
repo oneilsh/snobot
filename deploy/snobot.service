@@ -1,0 +1,33 @@
+[Unit]
+Description=SNOBot Streamlit Application
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=snobot
+Group=snobot
+WorkingDirectory=/opt/snobot
+Environment=PATH=/opt/snobot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/snobot/.env
+ExecStart=/opt/snobot/.venv/bin/streamlit run app.py --server.port=8501 --server.address=127.0.0.1 --server.headless=true --server.enableCORS=true --server.enableXsrfProtection=false
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/snobot/snobot.log
+StandardError=append:/var/log/snobot/snobot-error.log
+SyslogIdentifier=snobot
+
+# Security settings (relaxed for Streamlit threading requirements)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/snobot
+RestrictRealtime=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

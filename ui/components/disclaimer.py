@@ -2,12 +2,11 @@
 
 import streamlit as st
 import os
-import dotenv
 import base64
 from urllib.parse import urlencode
 
-# Load environment variables
-dotenv.load_dotenv(override=True)
+# Load environment variables (secure in production, local in development)
+import load_env_secure
 
 
 DISCLAIMER_TEXT = """
