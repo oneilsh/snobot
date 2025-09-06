@@ -14,7 +14,7 @@ def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padd
     
     Args:
         num_notes: Number of notes to include in smoke test
-        concepts_per_note: Maximum number of concepts per note
+        concepts_per_note: Maximum number of concepts per note (use -1 for all concepts)
         padding: Characters to add after the last concept
     """
     
@@ -41,8 +41,10 @@ def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padd
         # Get all annotations for this note
         note_annotations = smoke_annotations[smoke_annotations['note_id'] == note_id].copy()
         
-        # Sort by start position and take first N concepts
-        note_annotations = note_annotations.sort_values('start').head(concepts_per_note)
+        # Sort by start position and take first N concepts (or all if concepts_per_note is -1)
+        note_annotations = note_annotations.sort_values('start')
+        if concepts_per_note > 0:
+            note_annotations = note_annotations.head(concepts_per_note)
         
         if len(note_annotations) == 0:
             continue
@@ -86,15 +88,26 @@ def main():
     parser = argparse.ArgumentParser(description='Prepare smoke test data for SNOMED CT evaluation')
     parser.add_argument('--notes', type=int, default=1,
                        help='Number of notes to include in smoke test (default: 1)')
-    parser.add_argument('--concepts', type=int, default=6,
-                       help='Maximum number of concepts per note (default: 6)')
+    parser.add_argument('--concepts', type=str, default='6',
+                       help='Maximum number of concepts per note (default: 6, use "all" for all concepts)')
     parser.add_argument('--padding', type=int, default=200,
                        help='Characters to add after the last concept (default: 200)')
     
     args = parser.parse_args()
     
-    print(f"Preparing smoke test with {args.notes} notes, up to {args.concepts} concepts each...")
-    prepare_smoke_test_data(args.notes, args.concepts, args.padding)
+    # Handle "all" concepts case
+    if args.concepts.lower() == 'all':
+        concepts_per_note = -1
+        concepts_desc = "all"
+    else:
+        try:
+            concepts_per_note = int(args.concepts)
+            concepts_desc = str(concepts_per_note)
+        except ValueError:
+            raise ValueError(f"Invalid value for --concepts: {args.concepts}. Use a number or 'all'.")
+    
+    print(f"Preparing smoke test with {args.notes} notes, up to {concepts_desc} concepts each...")
+    prepare_smoke_test_data(args.notes, concepts_per_note, args.padding)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ prepare-smoke-data:
 	uv run python evals/prepare_smoke_test.py
 
 prepare-smoke-data-custom:
-	@echo "Usage: make prepare-smoke-data-custom NOTES=2 CONCEPTS=10"
+	@echo "Usage: make prepare-smoke-data-custom NOTES=2 CONCEPTS=10 (or CONCEPTS=all)"
 	@echo "Preparing smoke test data with $(NOTES) notes and $(CONCEPTS) concepts per note..."
 	uv run python evals/prepare_smoke_test.py --notes $(NOTES) --concepts $(CONCEPTS)
 
