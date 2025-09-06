@@ -24,6 +24,8 @@ from resources.sql_db import SqlDB
 from resources.vec_db import VecDB
 # Import official DrivenData scoring function
 from evals.scoring import iou_per_class
+# Import enhanced span analyzer
+from evals.span_analyzer import SpanAnalyzer
 
 
 class SNOMEDEvaluator:
@@ -36,6 +38,7 @@ class SNOMEDEvaluator:
         self.model_config = get_model_config(DEFAULT_MODEL)
         self.vec_db = None
         self.sql_db = None
+        self.span_analyzer = None
         # Will be set properly when we know the split
         self.reports_dir = None
         
@@ -44,6 +47,7 @@ class SNOMEDEvaluator:
         try:
             self.vec_db = VecDB()
             self.sql_db = SqlDB()
+            self.span_analyzer = SpanAnalyzer(sql_db=self.sql_db)
             logging.info("Resources initialized successfully")
         except Exception as e:
             logging.error(f"Failed to initialize resources: {e}")
@@ -461,7 +465,7 @@ class SNOMEDEvaluator:
         return (intersection / union) >= threshold
     
     def generate_summary_report(self, results: List[Dict[str, Any]], metrics: Dict[str, float], split: str, submission_path: str):
-        """Generate a comprehensive summary report combining all individual reports."""
+        """Generate a comprehensive summary report combining all individual reports with enhanced span analysis."""
         try:
             import json
             from pathlib import Path
@@ -540,7 +544,10 @@ class SNOMEDEvaluator:
                     
                     total_concepts += len(report_data.get('final_results', []))
             
-            # Create comprehensive summary
+            # Run enhanced span analysis
+            enhanced_analysis = self._run_enhanced_span_analysis(submission_path, split, results)
+            
+            # Create comprehensive summary with enhanced span analysis
             summary_report = {
                 'evaluation_summary': {
                     'split': split,
@@ -550,6 +557,7 @@ class SNOMEDEvaluator:
                     'total_concepts_coded': total_concepts,
                     'evaluation_metrics': metrics
                 },
+                'enhanced_span_analysis': enhanced_analysis,
                 'cost_analysis': {
                     'total_cost_usd': round(total_cost, 4),
                     'total_tokens': total_tokens,
@@ -578,6 +586,114 @@ class SNOMEDEvaluator:
             
         except Exception as e:
             logging.error(f"Error generating summary report: {e}")
+    
+    def _run_enhanced_span_analysis(self, submission_path: str, split: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Run enhanced span analysis and return results"""
+        try:
+            # Load the notes data to get text for span analysis
+            notes_df = self.load_data(split=split)
+            text_data = {}
+            for _, row in notes_df.iterrows():
+                text_data[str(row['note_id'])] = str(row['text'])
+            
+            # Load annotations data
+            annotations_df = self.load_annotations(split=split)
+            
+            # Create temporary annotations file for span analyzer
+            submission_path_obj = Path(submission_path)
+            temp_annotations_path = submission_path_obj.parent / f"temp_{split}_annotations.csv"
+            annotations_df.to_csv(temp_annotations_path, index=False)
+            
+            # Load spans using the analyzer
+            agent_spans = self.span_analyzer.load_spans_from_csv(submission_path, "agent", text_data)
+            gold_spans = self.span_analyzer.load_spans_from_csv(str(temp_annotations_path), "gold", text_data)
+            
+            logging.info(f"Enhanced span analysis: {len(agent_spans)} agent spans, {len(gold_spans)} gold spans")
+            
+            # Perform comprehensive span analysis
+            analysis_results = self.span_analyzer.analyze_spans(agent_spans, gold_spans, iou_threshold=0.5)
+            
+            # Save detailed analysis
+            output_dir = submission_path_obj.parent
+            enhanced_summary_path = output_dir / f"{split}_detailed_span_analysis.json"
+            self.span_analyzer.generate_enhanced_summary(analysis_results, str(enhanced_summary_path))
+            
+            # Create visualizations for each note
+            note_ids = set()
+            for span in agent_spans + gold_spans:
+                note_ids.add(span.note_id)
+            
+            visualizations_dir = output_dir / "span_visualizations"
+            visualizations_dir.mkdir(exist_ok=True)
+            
+            for note_id in note_ids:
+                viz_path = visualizations_dir / f"spans_{note_id}.txt"
+                try:
+                    self.span_analyzer.create_span_visualization(analysis_results, note_id, str(viz_path))
+                except Exception as e:
+                    logging.warning(f"Could not create visualization for note {note_id}: {e}")
+            
+            # Clean up temporary file
+            temp_annotations_path.unlink()
+            
+            # Return summary for inclusion in main report
+            stats = analysis_results["statistics"]
+            return {
+                "summary": {
+                    "total_agent_spans": stats["total_agent_spans"],
+                    "total_gold_spans": stats["total_gold_spans"],
+                    "exact_matches": stats["exact_matches"],
+                    "partial_overlaps": stats["partial_overlaps"],
+                    "concept_mismatches": stats["concept_mismatches"],
+                    "agent_only_spans": stats["agent_only_spans"],
+                    "gold_only_spans": stats["gold_only_spans"],
+                    "span_precision": stats["exact_matches"] / stats["total_agent_spans"] if stats["total_agent_spans"] > 0 else 0,
+                    "span_recall": stats["exact_matches"] / stats["total_gold_spans"] if stats["total_gold_spans"] > 0 else 0
+                },
+                "detailed_analysis_file": str(enhanced_summary_path.relative_to(output_dir)),
+                "visualizations_directory": str(visualizations_dir.relative_to(output_dir)),
+                "top_performing_concepts": self._get_top_performing_concepts(stats["by_concept_id"]),
+                "missed_concepts": self._get_missed_concepts(stats["by_concept_id"])
+            }
+            
+        except Exception as e:
+            logging.error(f"Error running enhanced span analysis: {e}")
+            return {
+                "summary": {"error": f"Span analysis failed: {str(e)}"},
+                "detailed_analysis_file": None,
+                "visualizations_directory": None
+            }
+    
+    def _get_top_performing_concepts(self, concept_stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get top performing concepts (perfect recall and precision)"""
+        top_concepts = []
+        for concept_id, stats in concept_stats.items():
+            if (stats["gold_count"] > 0 and stats["agent_count"] > 0 and 
+                stats["matches"] == stats["gold_count"] and stats["matches"] == stats["agent_count"]):
+                top_concepts.append({
+                    "concept_id": concept_id,
+                    "concept_name": stats["concept_name"],
+                    "perfect_matches": stats["matches"]
+                })
+        
+        # Sort by number of perfect matches
+        top_concepts.sort(key=lambda x: x["perfect_matches"], reverse=True)
+        return top_concepts[:5]  # Return top 5
+    
+    def _get_missed_concepts(self, concept_stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get concepts that were completely missed"""
+        missed_concepts = []
+        for concept_id, stats in concept_stats.items():
+            if stats["gold_count"] > 0 and stats["matches"] == 0:
+                missed_concepts.append({
+                    "concept_id": concept_id,
+                    "concept_name": stats["concept_name"],
+                    "missed_instances": stats["gold_count"]
+                })
+        
+        # Sort by number of missed instances
+        missed_concepts.sort(key=lambda x: x["missed_instances"], reverse=True)
+        return missed_concepts[:5]  # Return top 5 missed
 
 
 def main():

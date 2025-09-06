@@ -67,6 +67,7 @@ evals/data/snomed_challenge/*.csv
 evals/outputs/*/*.csv
 evals/outputs/*/*.json
 evals/outputs/*/reports/
+evals/outputs/*/span_visualizations/
 
 # OS
 .DS_Store
