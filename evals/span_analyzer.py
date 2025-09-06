@@ -447,8 +447,8 @@ class SpanAnalyzer:
         return output_path
     
     def create_span_visualization(self, analysis_results: Dict[str, Any], 
-                                note_id: str, output_path: str) -> str:
-        """Create a text-based visualization of span overlaps for a specific note"""
+                                note_id: str, output_path: str, note_text: str = None) -> str:
+        """Create a markdown visualization of span overlaps for a specific note"""
         
         note_stats = analysis_results["statistics"]["by_note_id"].get(note_id)
         if not note_stats:
@@ -470,21 +470,22 @@ class SpanAnalyzer:
             )
             comparisons.append(comparison)
         
-        # Create visualization
+        # Create markdown visualization
         lines = [
-            f"Span Analysis Visualization for Note: {note_id}",
-            "=" * 60,
+            f"# Span Analysis for Note: {note_id}",
             "",
-            f"Agent Spans: {note_stats['agent_span_count']}",
-            f"Gold Spans: {note_stats['gold_span_count']}",
-            f"Exact Matches: {note_stats['exact_matches']}",
-            f"Partial Overlaps: {note_stats['partial_overlaps']}",
-            f"Concept Mismatches: {note_stats['concept_mismatches']}",
-            f"Agent Only: {note_stats['agent_only_spans']}",
-            f"Gold Only: {note_stats['gold_only_spans']}",
+            "## Summary Statistics",
             "",
-            "Detailed Span Comparisons:",
-            "-" * 40
+            f"- **Agent Spans:** {note_stats['agent_span_count']}",
+            f"- **Gold Standard Spans:** {note_stats['gold_span_count']}",
+            f"- **Exact Matches:** {note_stats['exact_matches']}",
+            f"- **Partial Overlaps:** {note_stats['partial_overlaps']}",
+            f"- **Concept Mismatches:** {note_stats['concept_mismatches']}",
+            f"- **Agent Only (False Positives):** {note_stats['agent_only_spans']}",
+            f"- **Gold Only (Missed):** {note_stats['gold_only_spans']}",
+            "",
+            "## Detailed Span Comparisons",
+            ""
         ]
         
         # Group comparisons by type for better organization
@@ -511,28 +512,52 @@ class SpanAnalyzer:
         
         for group_name, group_comparisons in comparison_groups.items():
             if group_comparisons:
-                lines.extend([f"\n{group_name}:", ""])
+                lines.extend([f"### {group_name}", ""])
                 
                 for comp in group_comparisons:
                     if comp.agent_span and comp.gold_span:
                         lines.extend([
-                            f"  Agent: [{comp.agent_span.start}-{comp.agent_span.end}] '{comp.agent_span.text}' -> {comp.agent_span.concept_name} ({comp.agent_span.concept_id})",
-                            f"  Gold:  [{comp.gold_span.start}-{comp.gold_span.end}] '{comp.gold_span.text}' -> {comp.gold_span.concept_name} ({comp.gold_span.concept_id})",
-                            f"  IoU: {comp.iou_score:.3f}, Overlap: {comp.overlap_length} chars",
+                            f"**Agent:** `[{comp.agent_span.start}-{comp.agent_span.end}]` *\"{comp.agent_span.text}\"* → **{comp.agent_span.concept_name}** (`{comp.agent_span.concept_id}`)",
+                            f"**Gold:**  `[{comp.gold_span.start}-{comp.gold_span.end}]` *\"{comp.gold_span.text}\"* → **{comp.gold_span.concept_name}** (`{comp.gold_span.concept_id}`)",
+                            f"**IoU:** {comp.iou_score:.3f}, **Overlap:** {comp.overlap_length} chars",
                             ""
                         ])
                     elif comp.agent_span:
                         lines.extend([
-                            f"  Agent: [{comp.agent_span.start}-{comp.agent_span.end}] '{comp.agent_span.text}' -> {comp.agent_span.concept_name} ({comp.agent_span.concept_id})",
-                            f"  (No corresponding gold standard span)",
+                            f"**Agent:** `[{comp.agent_span.start}-{comp.agent_span.end}]` *\"{comp.agent_span.text}\"* → **{comp.agent_span.concept_name}** (`{comp.agent_span.concept_id}`)",
+                            f"*(No corresponding gold standard span)*",
                             ""
                         ])
                     elif comp.gold_span:
                         lines.extend([
-                            f"  Gold:  [{comp.gold_span.start}-{comp.gold_span.end}] '{comp.gold_span.text}' -> {comp.gold_span.concept_name} ({comp.gold_span.concept_id})",
-                            f"  (Missed by agent)",
+                            f"**Gold:**  `[{comp.gold_span.start}-{comp.gold_span.end}]` *\"{comp.gold_span.text}\"* → **{comp.gold_span.concept_name}** (`{comp.gold_span.concept_id}`)",
+                            f"*(Missed by agent)*",
                             ""
                         ])
+        
+        # Add original text section if provided
+        if note_text:
+            lines.extend([
+                "## Original Note Text",
+                "",
+                "```",
+                note_text,
+                "```",
+                "",
+                "---",
+                "",
+                "### Character Position Reference",
+                "",
+                "To help with debugging, here are some character position markers:",
+                ""
+            ])
+            
+            # Add position markers every 100 characters
+            text_length = len(note_text)
+            for i in range(0, text_length, 100):
+                end_pos = min(i + 100, text_length)
+                snippet = note_text[i:end_pos].replace('\n', '\\n')
+                lines.append(f"- **{i:4d}-{end_pos:4d}:** `{snippet[:50]}{'...' if len(snippet) > 50 else ''}`")
         
         # Save visualization
         with open(output_path, 'w', encoding='utf-8') as f:

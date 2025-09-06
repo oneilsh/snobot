@@ -627,9 +627,11 @@ class SNOMEDEvaluator:
             visualizations_dir.mkdir(exist_ok=True)
             
             for note_id in note_ids:
-                viz_path = visualizations_dir / f"spans_{note_id}.txt"
+                viz_path = visualizations_dir / f"spans_{note_id}.md"
                 try:
-                    self.span_analyzer.create_span_visualization(analysis_results, note_id, str(viz_path))
+                    # Get the note text for this note_id
+                    note_text = text_data.get(note_id, "")
+                    self.span_analyzer.create_span_visualization(analysis_results, note_id, str(viz_path), note_text)
                 except Exception as e:
                     logging.warning(f"Could not create visualization for note {note_id}: {e}")
             

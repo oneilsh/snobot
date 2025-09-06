@@ -57,7 +57,15 @@ def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padd
         last_end = note_annotations['end'].max()
         
         # Truncate text to include all concepts with padding
-        truncated_text = original_text[:last_end + padding]
+        text_cutoff = last_end + padding
+        truncated_text = original_text[:text_cutoff]
+        
+        # Now find ALL concepts (from original annotations) that fall within the truncated text
+        # This ensures we don't have partial overlaps that confuse evaluation
+        all_note_annotations = smoke_annotations[smoke_annotations['note_id'] == note_id].copy()
+        concepts_in_truncated_text = all_note_annotations[
+            all_note_annotations['start'] < text_cutoff
+        ].copy()
         
         # Update the note with truncated text
         processed_notes.append({
@@ -65,8 +73,8 @@ def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padd
             'text': truncated_text
         })
         
-        # Add the limited annotations
-        processed_annotations.append(note_annotations)
+        # Add ALL concepts that fall within the truncated text
+        processed_annotations.append(concepts_in_truncated_text)
     
     # Combine all processed data
     smoke_notes_df = pd.DataFrame(processed_notes)
