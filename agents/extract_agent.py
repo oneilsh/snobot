@@ -1,13 +1,13 @@
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.settings import ModelSettings
 from ui.utils import OMOP_DOMAINS, OMOP_DOMAINS_LITERAL
-from resources.st_resources import sql_db, vec_db, logger
+from resources.sql_db import SqlDB
+from resources.vec_db import VecDB
 from models import Mention, MentionList, AgentCodedConcept, FullCodedConcept, EnhancedConcept, ConceptRelation, ConceptCollection, ExtractionLogger
 from models.model_config import DEFAULT_MODEL
 import json
 import dotenv
 import pprint
-import streamlit as st
 from agents.strings import examples
 from typing import Optional, Tuple
 import uuid
@@ -15,8 +15,12 @@ import time
 
 dotenv.load_dotenv(override=True)
 
+# Initialize database instances
+sql_db = SqlDB()
+vec_db = VecDB()
 
-def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedConcept], ExtractionLogger]:
+
+def extract_and_code_mentions(text: str, status_widget=None) -> Tuple[list[FullCodedConcept], ExtractionLogger]:
     """Given an input text, returns a list of coded concepts and the extraction log."""
 
     process_id = str(uuid.uuid4())[:8]
@@ -29,7 +33,8 @@ def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedC
                       output_type=MentionList,
                       model_settings = ModelSettings(temperature=0.0))
 
-    status_widget.update(label="Identifying mentions...")
+    if status_widget:
+        status_widget.update(label="Identifying mentions...")
     run_result_agent = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
     mentions = run_result_agent.output.mentions
     usage = run_result_agent.usage()
@@ -42,7 +47,8 @@ def extract_and_code_mentions(text: str, status_widget) -> Tuple[list[FullCodedC
 
     coded_concepts: list[FullCodedConcept] = []
     for found_mention in mentions_str:
-        status_widget.update(label=f"Coding '{found_mention}'...")
+        if status_widget:
+            status_widget.update(label=f"Coding '{found_mention}'...")
         coded_concept = code_mention(found_mention, text, status_widget, extraction_logger)
         coded_concepts.append(coded_concept)
 
@@ -123,7 +129,7 @@ def get_hits_context(found_mention: str) -> ConceptCollection:
     
     return concept_collection
 
-def code_mention(found_mention: str, context: str, status_widget, extraction_logger: ExtractionLogger) -> FullCodedConcept:
+def code_mention(found_mention: str, context: str, status_widget=None, extraction_logger: ExtractionLogger = None) -> FullCodedConcept:
     """Code a mention to an OMOP concept using AI agent with comprehensive logging.
     
     This function orchestrates the complete mention coding process:
@@ -147,7 +153,8 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
     """
     mention_log = extraction_logger.start_mention_coding(found_mention)
     
-    status_widget.update(label=f"Coding '{found_mention}'... querying databases...")
+    if status_widget:
+        status_widget.update(label=f"Coding '{found_mention}'... querying databases...")
 
     step_id = extraction_logger.start_step("initial_vec_search", "initial_vector_search", f"Initial vector database search for '{found_mention}'")
     concept_collection = get_hits_context(found_mention)
@@ -166,7 +173,8 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
         Useful when the initial vector search results are poor (e.g., for acronyms like 'NSTEMI'). 
         Use expanded medical terminology (e.g., 'Non-ST elevation myocardial infarction' for 'NSTEMI').
         """
-        status_widget.update(label=f"Coding '{found_mention}'... vector search with alternative terminology '{query}'...")
+        if status_widget:
+            status_widget.update(label=f"Coding '{found_mention}'... vector search with alternative terminology '{query}'...")
         
         step_id = extraction_logger.start_step("alt_vector_search", "alternative_vector_search", f"Vector search with alternative terminology")
         search_results = get_hits_context(query)
@@ -182,7 +190,8 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
         Useful to identify potential more-general or more-specific concepts by exploring 
         parent and child relationships in the OMOP concept hierarchy.
         """
-        status_widget.update(label=f"Coding '{found_mention}'... retrieving concept context...")
+        if status_widget:
+            status_widget.update(label=f"Coding '{found_mention}'... retrieving concept context...")
         
         step_id = extraction_logger.start_step("concept_context", "concept_context", "Retrieving hierarchical concept context")
         context_results = get_concept_ids_context(concept_ids)
@@ -210,11 +219,13 @@ def code_mention(found_mention: str, context: str, status_widget, extraction_log
     
     if query_result:
         agent_picked_concept_id = query_result[0][0]
-        status_widget.update(label=f"Coding '{found_mention}'... mapped to standard concept...")
+        if status_widget:
+            status_widget.update(label=f"Coding '{found_mention}'... mapped to standard concept...")
         mapping_found = True
     else:
         agent_picked_concept_id = original_concept_id
-        status_widget.update(label=f"Coding '{found_mention}'... using non-standard concept (no mapping available)...")
+        if status_widget:
+            status_widget.update(label=f"Coding '{found_mention}'... using non-standard concept (no mapping available)...")
         mapping_found = False
     
     _log_concept_mapping(extraction_logger, step_id, original_concept_id, agent_picked_concept_id, mapping_found)

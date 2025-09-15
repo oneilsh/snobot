@@ -62,6 +62,13 @@ resources/omop_vocab/*.csv
 resources/omop_vocab/*.duckdb
 resources/omop_vocab/chroma_db/
 
+# Evaluation data and outputs (keep directory structure, exclude files)
+evals/data/snomed_challenge/*.csv
+evals/outputs/*/*.csv
+evals/outputs/*/*.json
+evals/outputs/*/reports/
+evals/outputs/*/span_visualizations/
+
 # OS
 .DS_Store
 Thumbs.db
