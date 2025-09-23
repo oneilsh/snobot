@@ -39,9 +39,9 @@ prepare-smoke-data:
 	uv run python evals/prepare_smoke_test.py
 
 prepare-smoke-data-custom:
-	@echo "Usage: make prepare-smoke-data-custom NOTES=2 CONCEPTS=10 (or CONCEPTS=all)"
-	@echo "Preparing smoke test data with $(NOTES) notes and $(CONCEPTS) concepts per note..."
-	uv run python evals/prepare_smoke_test.py --notes $(NOTES) --concepts $(CONCEPTS)
+	@echo "Usage: make prepare-smoke-data-custom NOTES=2 CONCEPTS=10 SKIP=0 (or CONCEPTS=all)"
+	@echo "Preparing smoke test data with $(NOTES) notes, $(CONCEPTS) concepts per note, skipping first $(if $(SKIP),$(SKIP),0) notes..."
+	uv run python evals/prepare_smoke_test.py --notes $(NOTES) --concepts $(CONCEPTS) --skip $(if $(SKIP),$(SKIP),0)
 
 eval-smoke:
 	@echo "Running SNOMED CT smoke test..."

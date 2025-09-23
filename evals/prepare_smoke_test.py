@@ -8,7 +8,7 @@ import argparse
 from pathlib import Path
 
 
-def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padding: int = 200):
+def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padding: int = 200, skip_notes: int = 0):
     """
     Create smoke test data from training set
     
@@ -16,6 +16,7 @@ def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padd
         num_notes: Number of notes to include in smoke test
         concepts_per_note: Maximum number of concepts per note (use -1 for all concepts)
         padding: Characters to add after the last concept
+        skip_notes: Number of notes to skip from the beginning (for testing different note sets)
     """
     
     data_dir = Path("evals/data/snomed_challenge")
@@ -24,8 +25,8 @@ def prepare_smoke_test_data(num_notes: int = 1, concepts_per_note: int = 6, padd
     train_notes = pd.read_csv(data_dir / "mimic-iv_notes_training_set.csv")
     train_annotations = pd.read_csv(data_dir / "train_annotations.csv")
     
-    # Select specified number of notes for smoke test
-    smoke_notes = train_notes.head(num_notes).copy()
+    # Select specified number of notes for smoke test, skipping the first skip_notes
+    smoke_notes = train_notes.iloc[skip_notes:skip_notes + num_notes].copy()
     smoke_note_ids = set(smoke_notes['note_id'])
     
     # Filter annotations to only include smoke test notes
@@ -100,6 +101,8 @@ def main():
                        help='Maximum number of concepts per note (default: 6, use "all" for all concepts)')
     parser.add_argument('--padding', type=int, default=200,
                        help='Characters to add after the last concept (default: 200)')
+    parser.add_argument('--skip', type=int, default=0,
+                       help='Number of notes to skip from the beginning (default: 0)')
     
     args = parser.parse_args()
     
@@ -114,8 +117,8 @@ def main():
         except ValueError:
             raise ValueError(f"Invalid value for --concepts: {args.concepts}. Use a number or 'all'.")
     
-    print(f"Preparing smoke test with {args.notes} notes, up to {concepts_desc} concepts each...")
-    prepare_smoke_test_data(args.notes, concepts_per_note, args.padding)
+    print(f"Preparing smoke test with {args.notes} notes (skipping first {args.skip}), up to {concepts_desc} concepts each...")
+    prepare_smoke_test_data(args.notes, concepts_per_note, args.padding, args.skip)
 
 
 if __name__ == "__main__":
