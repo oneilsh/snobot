@@ -57,11 +57,8 @@ precompute-databases:
 	@echo "Pre-computing and caching databases..."
 	uv run python evals/precompute_databases.py
 
-clean:
-	@echo "Cleaning up..."
-	# NB: these are also hardcoded in vec_db.py and sql_db.py
-	rm -rf resources/omop_vocab/omop_vocab.duckdb
-	rm -rf resources/omop_vocab/chroma_db
+clean-evals:
+	@echo "Cleaning up evals..."
 	rm -rf evals/outputs/
 	rm -rf evals/reports/
 	rm -f evals/*_submission.csv evals/evaluation_summary.json
@@ -70,3 +67,8 @@ clean-databases:
 	@echo "Cleaning up cached databases..."
 	rm -rf resources/omop_vocab/omop_vocab.duckdb
 	rm -rf resources/omop_vocab/chroma_db
+
+clean:
+	@echo "Cleaning up..."
+	make clean-evals
+	make clean-databases
