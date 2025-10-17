@@ -112,8 +112,14 @@ class VecDB:
         logger.info(f"ChromaDB initialization complete with {collection.count()} concepts.")
     
 
-    def query(self, text, top_k=5) -> list[VecDBHit]:
-        """Query ChromaDB for similar OMOP concepts."""
+    def query(self, text, top_k=5, domain_filter=None) -> list[VecDBHit]:
+        """Query ChromaDB for similar OMOP concepts.
+        
+        Args:
+            text: Query text
+            top_k: Number of results to return
+            domain_filter: Optional list of domain_ids to filter by (e.g., ['Condition', 'Observation'])
+        """
         if self.collection is None:
             raise ValueError("ChromaDB collection not initialized.")
         
@@ -124,10 +130,21 @@ class VecDB:
             normalize_embeddings=True,
         ).cpu().numpy().tolist()[0]  # Get the first (and only) embedding from the batch
 
+        # Build where clause for domain filtering
+        where_clause = None
+        if domain_filter:
+            if len(domain_filter) == 1:
+                # For single domain, use simple equality
+                where_clause = {"domain_id": domain_filter[0]}
+            else:
+                # For multiple domains, use $in operator
+                where_clause = {"domain_id": {"$in": domain_filter}}
+
         # Query ChromaDB
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k
+            n_results=top_k,
+            where=where_clause
         )
         
         # Convert results to VecDBHit format

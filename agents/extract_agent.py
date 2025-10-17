@@ -26,16 +26,16 @@ def extract_and_code_mentions(text: str, status_widget=None) -> Tuple[list[FullC
     process_id = str(uuid.uuid4())[:8]
     extraction_logger = ExtractionLogger(text, process_id)
     
-    step_id = extraction_logger.start_step("mention_id", "mention_identification", "Identifying potential SNOMED mentions")
+    step_id = extraction_logger.start_step("mention_id", "mention_identification", "Identifying potential OMOP mentions")
     
     sub_agent = Agent(DEFAULT_MODEL, 
-                      system_prompt=f"You are a helpful assistant that extracts potential SNOMED concepts or synonyms from clinical text. When identifying codable spans, consider the following examples and guidelines: {examples}. Note that your job is simple to identify text spans in need of coding; a subsequent process will be used to identifying matching concepts.",
+                      system_prompt=f"You are a helpful assistant that extracts potential OMOP concepts from clinical text. Focus on identifying medical terms that can be coded to these medical domains: Condition, Observation, Procedure, Drug, Device, Measurement, Meas Value, Unit, and Visit. When identifying codable spans, consider the following examples and guidelines: {examples}. Note that your job is to identify text spans in need of coding; a subsequent process will be used to identify matching concepts.",
                       output_type=MentionList,
                       model_settings = ModelSettings(temperature=0.0))
 
     if status_widget:
         status_widget.update(label="Identifying mentions...")
-    run_result_agent = sub_agent.run_sync("Please identify potential SNOMED concepts in the following text:\n\n" + text)
+    run_result_agent = sub_agent.run_sync("Please identify potential OMOP concepts in the following text:\n\n" + text)
     mentions = run_result_agent.output.mentions
     usage = run_result_agent.usage()
     
@@ -121,7 +121,16 @@ def get_hits_context(found_mention: str) -> ConceptCollection:
     This is a pure utility function that performs vector search without logging.
     Logging should be handled at the caller level.
     """
-    hits = vec_db.query(found_mention, 10) 
+    # Define medical domains for filtering
+    medical_domains = ['Condition', 'Observation', 'Procedure', 'Drug', 'Device', 'Measurement', 'Meas Value', 'Unit', 'Visit']
+    
+    # First try with medical domain filtering
+    hits = vec_db.query(found_mention, 10, domain_filter=medical_domains)
+    
+    # If we don't get enough results, fall back to unfiltered search
+    if len(hits) < 5:
+        hits = vec_db.query(found_mention, 10)
+    
     concept_ids = [hit.concept_id for hit in hits]
 
     concept_collection = get_concept_ids_context(concept_ids)
@@ -161,8 +170,36 @@ def code_mention(found_mention: str, context: str, status_widget=None, extractio
     
     _log_initial_vector_search(extraction_logger, step_id, found_mention, concept_collection)
 
+    clinical_selection_prompt = f"""You are a clinical coding specialist selecting the most appropriate OMOP concept from candidates found via vector similarity search for '{found_mention}'.
+
+CLINICAL CODING PRIORITIES:
+1. Choose the most clinically specific and accurate term that matches the context
+2. Prefer established clinical terminology over lay language
+3. For symptoms, choose the medical term (e.g., "dyspnea" over "breathing problems")
+4. For conditions, prefer the standard diagnostic term
+5. Consider the clinical context and severity described
+
+AVAILABLE MEDICAL DOMAINS:
+The search prioritizes these medical domains: Condition, Disorder, Observation, Procedure, Drug, Device, Measurement, Meas Value, Unit, and Visit.
+
+SELECTION GUIDELINES:
+- For abbreviations like "HTN", prefer the most clinically appropriate expansion
+- For symptom descriptions, choose the precise medical terminology
+- Always identify allergies, preferring "Allergy to [substance]" format when available
+- When multiple concepts are clinically equivalent, choose the one more commonly used in clinical practice
+- Consider hierarchical relationships - sometimes a more general or specific term may be more appropriate
+- Be inclusive, including codes for higher-level concepts such as "pain" or "swelling" unless a more specific code is available
+
+TOOLS AVAILABLE:
+- Use vector_search_alternative for acronyms or when initial results are poor (search with expanded medical terminology)
+- Use get_concept_context to explore hierarchical relationships and find more appropriate general/specific terms
+
+Given the context and candidate concepts, return the concept_id, concept_name, and whether it is negated.
+
+EXAMPLES AND GUIDELINES: {examples}"""
+
     sub_agent = Agent(DEFAULT_MODEL, 
-                      system_prompt=f"You are a helpful assistant that identifies the best fitting OMOP concept from a list of candidates. The initial candidates were found using vector similarity search for '{found_mention}'. Given a context and a YAML-structured list of candidate OMOP concepts with hierarchical information, return the concept_id, concept_name, and whether it is negated in the context. If the initial vector search candidates are a poor fit (e.g., for acronyms or abbreviations), you can use the vector_search_alternative tool to search with expanded terminology. You can also explore the hierarchy using get_concept_context. Use the following examples and guidelines to guide your search: {examples}",
+                      system_prompt=clinical_selection_prompt,
                       output_type=AgentCodedConcept,
                       model_settings = ModelSettings(temperature=0.0))
 
@@ -262,7 +299,7 @@ def _log_mention_identification(extraction_logger: ExtractionLogger, step_id: st
     """Log mention identification results with usage statistics."""
     extraction_logger.log_step(
         step_type="mention_identification",
-        description="Identified potential SNOMED mentions from text",
+        description="Identified potential OMOP mentions from text",
         input_data={"text_length": len(text), "model": DEFAULT_MODEL},
         output_data={
             "raw_mentions": [m.mention_str for m in mentions], 
